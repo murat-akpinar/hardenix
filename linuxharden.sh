@@ -270,10 +270,23 @@ check_dependencies() {
 
     if [[ ! -f "$XML_PATH" ]]; then
         log_warn "SCAP content not found: $XML_PATH"
-        echo -e "  Install: ${BOLD}${PKG_MANAGER} install ${SSG_PKG}${NC}"
-        if [[ "$PKG_MANAGER" == "apt-get" ]]; then
-            echo -e "  Hint: packages are in the ${BOLD}universe${NC} repo."
-            echo -e "  Run : ${BOLD}add-apt-repository universe && apt-get update${NC}"
+        if [[ "$PKG_MANAGER" == "apt-get" ]] && dpkg -s ssg-debderived &>/dev/null; then
+            local ssg_ver; ssg_ver=$(dpkg -s ssg-debderived | awk '/^Version:/{print $2}')
+            log_warn "ssg-debderived ${ssg_ver} is installed but lacks content for this OS version."
+            echo -e "  The distro package is too old — download newer content from GitHub:"
+            echo -e "  ${BOLD}https://github.com/ComplianceAsCode/content/releases${NC}"
+            echo -e "  Then place the xml file at: ${BOLD}$(dirname "$XML_PATH")/${NC}"
+            echo ""
+            echo -e "  Quick install (replace X.X.XX with latest version):"
+            echo -e "  ${BOLD}wget https://github.com/ComplianceAsCode/content/releases/download/vX.X.XX/scap-security-guide-X.X.XX.zip${NC}"
+            echo -e "  ${BOLD}unzip scap-security-guide-X.X.XX.zip${NC}"
+            echo -e "  ${BOLD}cp scap-security-guide-X.X.XX/$(basename "$XML_PATH") $(dirname "$XML_PATH")/${NC}"
+        else
+            echo -e "  Install: ${BOLD}${PKG_MANAGER} install ${SSG_PKG}${NC}"
+            if [[ "$PKG_MANAGER" == "apt-get" ]]; then
+                echo -e "  Hint: packages are in the ${BOLD}universe${NC} repo."
+                echo -e "  Run : ${BOLD}add-apt-repository universe && apt-get update${NC}"
+            fi
         fi
         missing=1
     fi
