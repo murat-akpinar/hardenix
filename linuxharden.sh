@@ -3,6 +3,7 @@
 set -euo pipefail
 
 readonly SCRIPT_VERSION="1.1.0"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly GITHUB_RAW="https://raw.githubusercontent.com/murat-akpinar/hardenix/main/profiles"
 readonly BACKUP_BASE="/var/lib/linuxharden"
 readonly REPORT_DIR="$(pwd)/reports"
@@ -156,12 +157,20 @@ download_conf() {
     )
 
     for conf_name in "${candidates[@]}"; do
+        local local_path="${SCRIPT_DIR}/profiles/${conf_name}"
+
+        if [[ -f "$local_path" ]]; then
+            CONF_FILE="$local_path"
+            log_info "Profile loaded (local): $conf_name"
+            return
+        fi
+
         local url="${GITHUB_RAW}/${conf_name}"
         log_info "Fetching: $conf_name"
 
         if wget -q --timeout=10 -O "$CONF_FILE" "$url" 2>/dev/null; then
             if grep -q '^meta:' "$CONF_FILE" 2>/dev/null; then
-                log_info "Profile loaded: $conf_name"
+                log_info "Profile loaded (remote): $conf_name"
                 return
             fi
         fi
