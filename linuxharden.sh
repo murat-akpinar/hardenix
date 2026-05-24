@@ -3,7 +3,7 @@
 set -euo pipefail
 
 readonly SCRIPT_VERSION="1.1.0"
-readonly GITHUB_RAW="https://raw.githubusercontent.com/YOUR_GITHUB_USER/Linux-Hardering/main/profiles"
+readonly GITHUB_RAW="https://raw.githubusercontent.com/murat-akpinar/hardenix/main/profiles"
 readonly BACKUP_BASE="/var/lib/linuxharden"
 readonly REPORT_DIR="$(pwd)/reports"
 readonly TMP_DIR="/tmp/linuxharden_$$"
@@ -172,7 +172,7 @@ download_conf() {
 
     log_error "No compatible profile found for: ${DISTRO_PRETTY}"
     echo ""
-    echo "  Supported profiles: https://github.com/YOUR_GITHUB_USER/Linux-Hardering/tree/main/profiles"
+    echo "  Supported profiles: https://github.com/murat-akpinar/hardenix/tree/main/profiles"
     echo "  Use a local .yml with: --conf /path/to/your.yml"
     exit 1
 }
