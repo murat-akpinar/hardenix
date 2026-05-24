@@ -554,6 +554,84 @@ PYEOF
     log_info "JSON report: $json"
 }
 
+print_failing_rules() {
+    local arf="$1"
+    [[ ! -f "$arf" ]] && return
+    command -v python3 &>/dev/null || return
+
+    python3 - "$arf" <<'PYEOF'
+import sys
+from collections import defaultdict
+import xml.etree.ElementTree as ET
+
+NS   = 'http://checklists.nist.gov/xccdf/1.2'
+tree = ET.parse(sys.argv[1]).getroot()
+
+rules = {}
+for rule in tree.iter(f'{{{NS}}}Rule'):
+    rid   = rule.get('id', '')
+    title = rule.findtext(f'{{{NS}}}title') or ''
+    sev   = rule.get('severity', 'unknown')
+    rules[rid] = (title.strip(), sev)
+
+SEV_ORDER = {'high': 0, 'medium': 1, 'low': 2, 'unknown': 3}
+SEV_COLOR = {
+    'high':    '\033[0;31m',
+    'medium':  '\033[1;33m',
+    'low':     '\033[0;34m',
+    'unknown': '\033[0;37m',
+}
+NC   = '\033[0m'
+BOLD = '\033[1m'
+
+failed = []
+for rr in tree.iter(f'{{{NS}}}rule-result'):
+    r = rr.find(f'{{{NS}}}result')
+    if r is not None and r.text and r.text.strip() == 'fail':
+        rid = rr.get('idref', '')
+        title, sev = rules.get(rid, ('', 'unknown'))
+        short = rid.split('_rule_')[-1] if '_rule_' in rid else rid
+        failed.append((SEV_ORDER.get(sev, 3), sev, short, title))
+
+failed.sort()
+
+if not failed:
+    print(f"\n  {BOLD}No failing rules found.{NC}")
+    sys.exit(0)
+
+groups = defaultdict(list)
+for _, sev, short, title in failed:
+    groups[sev].append((short, title))
+
+SEP_W = 72
+RW    = 42
+TW    = 34
+
+for sev in ['high', 'medium', 'low', 'unknown']:
+    items = groups.get(sev, [])
+    if not items:
+        continue
+    col   = SEV_COLOR.get(sev, NC)
+    label = f"  {sev.upper()}  ({len(items)} rule{'s' if len(items) != 1 else ''})"
+    print(f"\n  {col}{'━' * SEP_W}{NC}")
+    print(f"  {col}{BOLD}{label}{NC}")
+    print(f"  {col}{'━' * SEP_W}{NC}")
+    for short, title in items:
+        r = (short[:RW-1] + '…') if len(short) > RW else short
+        t = (title[:TW-1] + '…') if len(title) > TW else title
+        print(f"    {r:<{RW}}  {t}")
+
+counts = {s: len(groups.get(s, [])) for s in ['high', 'medium', 'low', 'unknown']}
+total  = sum(counts.values())
+parts  = []
+for s in ['high', 'medium', 'low', 'unknown']:
+    if counts[s]:
+        col = SEV_COLOR.get(s, NC)
+        parts.append(f"{col}{counts[s]} {s}{NC}")
+print(f"\n  {BOLD}Total: {total} failing rules{NC}  ({'  ·  '.join(parts)})")
+PYEOF
+}
+
 print_scan_summary() {
     local arf="$1"
     [[ ! -f "$arf" ]] && return
@@ -762,10 +840,12 @@ run_scan() {
     log_info "Reports : $REPORT_DIR"
     echo ""
 
+    local scan_pid
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "$arf_file") 2>&1 \
-        | grep -E '^(Rule|Title|Result|Severity|Fixing)' | tail -20 \
-        || true
+    oscap xccdf eval $(oscap_eval_args "$arf_file") >/dev/null 2>&1 &
+    scan_pid=$!
+    _spin "$scan_pid" "Scanning system..."
+    wait "$scan_pid" 2>/dev/null || true
 
     [[ ! -f "$arf_file" ]] && { log_error "Scan produced no output."; exit 1; }
 
@@ -778,6 +858,8 @@ run_scan() {
             ;;
     esac
 
+    print_failing_rules "$arf_file"
+    echo ""
     print_scan_summary "$arf_file"
 }
 
@@ -804,77 +886,7 @@ run_apply() {
         wait "$scan_pid" 2>/dev/null || true
 
         if [[ -f "$arf" ]]; then
-            python3 - "$arf" <<'PYEOF'
-import sys
-from collections import defaultdict
-import xml.etree.ElementTree as ET
-
-NS   = 'http://checklists.nist.gov/xccdf/1.2'
-tree = ET.parse(sys.argv[1]).getroot()
-
-rules = {}
-for rule in tree.iter(f'{{{NS}}}Rule'):
-    rid   = rule.get('id', '')
-    title = rule.findtext(f'{{{NS}}}title') or ''
-    sev   = rule.get('severity', 'unknown')
-    rules[rid] = (title.strip(), sev)
-
-SEV_ORDER = {'high': 0, 'medium': 1, 'low': 2, 'unknown': 3}
-SEV_COLOR = {
-    'high':    '\033[0;31m',
-    'medium':  '\033[1;33m',
-    'low':     '\033[0;34m',
-    'unknown': '\033[0;37m',
-}
-NC   = '\033[0m'
-BOLD = '\033[1m'
-
-failed = []
-for rr in tree.iter(f'{{{NS}}}rule-result'):
-    r = rr.find(f'{{{NS}}}result')
-    if r is not None and r.text and r.text.strip() == 'fail':
-        rid = rr.get('idref', '')
-        title, sev = rules.get(rid, ('', 'unknown'))
-        short = rid.split('_rule_')[-1] if '_rule_' in rid else rid
-        failed.append((SEV_ORDER.get(sev, 3), sev, short, title))
-
-failed.sort()
-
-if not failed:
-    print(f"  {BOLD}No failing rules found.{NC}")
-    sys.exit(0)
-
-groups = defaultdict(list)
-for _, sev, short, title in failed:
-    groups[sev].append((short, title))
-
-SEP_W = 72
-RW    = 42
-TW    = 34
-
-for sev in ['high', 'medium', 'low', 'unknown']:
-    items = groups.get(sev, [])
-    if not items:
-        continue
-    col   = SEV_COLOR.get(sev, NC)
-    label = f"  {sev.upper()}  ({len(items)} rule{'s' if len(items) != 1 else ''})"
-    print(f"\n  {col}{'━' * SEP_W}{NC}")
-    print(f"  {col}{BOLD}{label}{NC}")
-    print(f"  {col}{'━' * SEP_W}{NC}")
-    for short, title in items:
-        r = (short[:RW-1] + '…') if len(short) > RW else short
-        t = (title[:TW-1] + '…') if len(title) > TW else title
-        print(f"    {r:<{RW}}  {t}")
-
-counts = {s: len(groups.get(s, [])) for s in ['high', 'medium', 'low', 'unknown']}
-total  = sum(counts.values())
-parts  = []
-for s in ['high', 'medium', 'low', 'unknown']:
-    if counts[s]:
-        col = SEV_COLOR.get(s, NC)
-        parts.append(f"{col}{counts[s]} {s}{NC}")
-print(f"\n  {BOLD}Total: {total} failing rules{NC}  ({'  ·  '.join(parts)})")
-PYEOF
+            print_failing_rules "$arf"
             echo ""
             print_scan_summary "$arf"
         fi
@@ -933,49 +945,9 @@ PYEOF
     print_improvement "$pre_score" "$post_score"
 
     if [[ -f "$post_arf" ]]; then
+        print_failing_rules "$post_arf"
         echo ""
         print_scan_summary "$post_arf"
-        echo ""
-        python3 - "$post_arf" <<'PYEOF'
-import sys
-import xml.etree.ElementTree as ET
-
-NS = 'http://checklists.nist.gov/xccdf/1.2'
-tree = ET.parse(sys.argv[1]).getroot()
-
-rules = {}
-for rule in tree.iter(f'{{{NS}}}Rule'):
-    rules[rule.get('id', '')] = rule.get('severity', 'unknown')
-
-SEV_COLOR = {
-    'high':    '\033[0;31m',
-    'medium':  '\033[1;33m',
-    'low':     '\033[0;34m',
-    'unknown': '\033[0;37m',
-}
-NC   = '\033[0m'
-BOLD = '\033[1m'
-
-counts = {'high': 0, 'medium': 0, 'low': 0, 'unknown': 0}
-for rr in tree.iter(f'{{{NS}}}rule-result'):
-    r = rr.find(f'{{{NS}}}result')
-    if r is not None and r.text and r.text.strip() == 'fail':
-        sev = rules.get(rr.get('idref', ''), 'unknown')
-        counts[sev] = counts.get(sev, 0) + 1
-
-total = sum(counts.values())
-if total == 0:
-    print(f"  {BOLD}All rules passed!{NC}")
-    sys.exit(0)
-
-parts = []
-for s in ['high', 'medium', 'low', 'unknown']:
-    if counts[s]:
-        parts.append(f"{SEV_COLOR[s]}{counts[s]} {s}{NC}")
-
-print(f"  Remaining issues: {BOLD}{total} rules{NC}  ({'  ·  '.join(parts)})")
-print(f"  Run {BOLD}--dry-run{NC} to see the full list.")
-PYEOF
     fi
 
     run_hook "$HOOK_POST" "post_hardening"
