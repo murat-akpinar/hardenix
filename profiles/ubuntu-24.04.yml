@@ -29,6 +29,7 @@ backup:
     - /etc/modprobe.d
     - /etc/cron.d
     - /etc/profile.d
+    - /etc/apparmor.d
 
 exclusions:
   rules:    []
