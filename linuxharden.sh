@@ -785,11 +785,13 @@ run_apply() {
         local arf="${REPORT_DIR}/dryrun_${ts}.arf"
 
         # shellcheck disable=SC2046
-        oscap xccdf eval $(oscap_eval_args "$arf") 2>/dev/null || true
+        oscap xccdf eval $(oscap_eval_args "$arf") >/dev/null 2>&1 || true
 
         if [[ -f "$arf" ]]; then
             python3 - "$arf" <<'PYEOF'
-import sys, xml.etree.ElementTree as ET
+import sys
+from collections import defaultdict
+import xml.etree.ElementTree as ET
 
 NS   = 'http://checklists.nist.gov/xccdf/1.2'
 tree = ET.parse(sys.argv[1]).getroot()
@@ -806,7 +808,7 @@ SEV_COLOR = {
     'high':    '\033[0;31m',
     'medium':  '\033[1;33m',
     'low':     '\033[0;34m',
-    'unknown': '\033[0m',
+    'unknown': '\033[0;37m',
 }
 NC   = '\033[0m'
 BOLD = '\033[1m'
@@ -817,7 +819,8 @@ for rr in tree.iter(f'{{{NS}}}rule-result'):
     if r is not None and r.text and r.text.strip() == 'fail':
         rid = rr.get('idref', '')
         title, sev = rules.get(rid, ('', 'unknown'))
-        failed.append((SEV_ORDER.get(sev, 3), sev, rid, title))
+        short = rid.split('_rule_')[-1] if '_rule_' in rid else rid
+        failed.append((SEV_ORDER.get(sev, 3), sev, short, title))
 
 failed.sort()
 
@@ -825,14 +828,36 @@ if not failed:
     print(f"  {BOLD}No failing rules found.{NC}")
     sys.exit(0)
 
-print(f"  {BOLD}{'SEV':<8} {'RULE ID':<55} TITLE{NC}")
-print(f"  {'─'*8} {'─'*55} {'─'*30}")
-for _, sev, rid, title in failed:
-    col   = SEV_COLOR.get(sev, NC)
-    short = rid.split('_rule_')[-1] if '_rule_' in rid else rid
-    print(f"  {col}{sev:<8}{NC} {short:<55} {title[:60]}")
+groups = defaultdict(list)
+for _, sev, short, title in failed:
+    groups[sev].append((short, title))
 
-print(f"\n  {BOLD}Total failing rules: {len(failed)}{NC}")
+SEP_W = 72
+RW    = 42
+TW    = 34
+
+for sev in ['high', 'medium', 'low', 'unknown']:
+    items = groups.get(sev, [])
+    if not items:
+        continue
+    col   = SEV_COLOR.get(sev, NC)
+    label = f"  {sev.upper()}  ({len(items)} rule{'s' if len(items) != 1 else ''})"
+    print(f"\n  {col}{'━' * SEP_W}{NC}")
+    print(f"  {col}{BOLD}{label}{NC}")
+    print(f"  {col}{'━' * SEP_W}{NC}")
+    for short, title in items:
+        r = (short[:RW-1] + '…') if len(short) > RW else short
+        t = (title[:TW-1] + '…') if len(title) > TW else title
+        print(f"    {r:<{RW}}  {t}")
+
+counts = {s: len(groups.get(s, [])) for s in ['high', 'medium', 'low', 'unknown']}
+total  = sum(counts.values())
+parts  = []
+for s in ['high', 'medium', 'low', 'unknown']:
+    if counts[s]:
+        col = SEV_COLOR.get(s, NC)
+        parts.append(f"{col}{counts[s]} {s}{NC}")
+print(f"\n  {BOLD}Total: {total} failing rules{NC}  ({'  ·  '.join(parts)})")
 PYEOF
             echo ""
             print_scan_summary "$arf"
