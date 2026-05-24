@@ -262,18 +262,35 @@ check_dependencies() {
     if ! command -v oscap &>/dev/null; then
         log_warn "openscap not installed."
         echo -e "  Install: ${BOLD}${PKG_MANAGER} install ${OSCAP_PKG}${NC}"
+        if [[ "$PKG_MANAGER" == "apt-get" ]]; then
+            echo -e "  Hint: ${BOLD}apt-get update${NC} first, then install."
+        fi
         missing=1
     fi
 
     if [[ ! -f "$XML_PATH" ]]; then
         log_warn "SCAP content not found: $XML_PATH"
         echo -e "  Install: ${BOLD}${PKG_MANAGER} install ${SSG_PKG}${NC}"
+        if [[ "$PKG_MANAGER" == "apt-get" ]]; then
+            echo -e "  Hint: packages are in the ${BOLD}universe${NC} repo."
+            echo -e "  Run : ${BOLD}add-apt-repository universe && apt-get update${NC}"
+        fi
         missing=1
     fi
 
     if [[ $missing -eq 1 ]]; then echo ""; log_error "Missing dependencies. Aborting."; exit 1; fi
 
     local ver; ver=$(oscap --version 2>&1 | awk 'NR==1{print $NF}')
+    local major minor
+    major=$(echo "$ver" | cut -d. -f1)
+    minor=$(echo "$ver" | cut -d. -f2)
+    if [[ "$major" -lt 1 ]] || [[ "$major" -eq 1 && "$minor" -lt 3 ]]; then
+        log_warn "oscap ${ver} is outdated — 1.3+ required for current SSG content."
+        echo -e "  Reinstall: ${BOLD}apt-get install --reinstall ${OSCAP_PKG}${NC}"
+        echo ""
+        log_error "Incompatible oscap version. Aborting."
+        exit 1
+    fi
     log_info "oscap ${ver} — OK"
 }
 
