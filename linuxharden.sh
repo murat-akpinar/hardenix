@@ -384,10 +384,11 @@ b, a = float(sys.argv[1]), float(sys.argv[2])
 diff = a - b
 G = '\033[0;32m'; R = '\033[0;31m'; Y = '\033[1;33m'; B = '\033[1m'; NC = '\033[0m'
 color = G if diff > 0 else (Y if diff == 0 else R)
+val_b = f"{b}%"; val_a = f"{a}%"; val_c = f"{diff:+.1f}%"
 print(f"  {B}┌─ Hardening Result {'─'*27}┐{NC}")
-print(f"  │  Before : {b}%{'':<35}│")
-print(f"  │  After  : {a}%{'':<35}│")
-print(f"  │  Change : {color}{diff:+.1f}%{NC}{'':<34}│")
+print(f"  │  Before : {val_b}{' '*(35-len(val_b))}│")
+print(f"  │  After  : {val_a}{' '*(35-len(val_a))}│")
+print(f"  │  Change : {color}{val_c}{NC}{' '*(35-len(val_c))}│")
 print(f"  {B}└{'─'*46}┘{NC}")
 PYEOF
 }
@@ -415,8 +416,8 @@ create_backup() {
 
     if [[ ${#existing[@]} -gt 0 ]]; then
         tar czf "${backup_dir}/configs.tar.gz" "${existing[@]}" 2>/dev/null \
-            && log_info "Config files archived (${#existing[@]} dirs)" \
-            || log_warn "Some files could not be archived"
+            && log_info "Config files archived (${#existing[@]} dirs)" >&2 \
+            || log_warn "Some files could not be archived" >&2
     fi
 
     # Exclude specified services from saved state
@@ -430,7 +431,7 @@ create_backup() {
         | awk '{print $1}' \
         | eval "$svc_filter" \
         | sort > "${backup_dir}/services_enabled.txt"
-    log_info "Service states saved"
+    log_info "Service states saved" >&2
 
     # Save current .yml profile alongside backup
     cp "$CONF_FILE" "${backup_dir}/profile.yml" 2>/dev/null || true
@@ -449,7 +450,7 @@ hook_rollback=${HOOK_ROLLBACK}
 EOF
 
     ln -sfn "$backup_dir" "${BACKUP_BASE}/latest"
-    log_info "Backup complete: $backup_dir"
+    log_info "Backup complete: $backup_dir" >&2
     echo "$backup_dir"
 }
 
@@ -526,12 +527,13 @@ total = p + f
 score = round(p / total * 100, 1) if total > 0 else 0.0
 G = '\033[0;32m'; R = '\033[0;31m'; Y = '\033[1;33m'; B = '\033[1m'; NC = '\033[0m'
 
+score_str = f"{score}%"
 print(f"\n  {B}┌─ Scan Summary {'─'*31}┐{NC}")
-print(f"  │  {G}Pass       {NC}: {p:<6}                           │")
-print(f"  │  {R}Fail       {NC}: {f:<6}                           │")
-print(f"  │  {Y}Error      {NC}: {e:<6}                           │")
-print(f"  │  Not checked: {o:<6}                           │")
-print(f"  │  Score      : {B}{score}%{NC}{'':27}  │")
+print(f"  │  {G}Pass       {NC}: {p:<6}                         │")
+print(f"  │  {R}Fail       {NC}: {f:<6}                         │")
+print(f"  │  {Y}Error      {NC}: {e:<6}                         │")
+print(f"  │  Not checked: {o:<6}                         │")
+print(f"  │  Score      : {B}{score_str}{NC}{' '*(31-len(score_str))}│")
 print(f"  {B}└{'─'*46}┘{NC}")
 PYEOF
 }
