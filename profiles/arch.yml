@@ -1,0 +1,42 @@
+meta:
+  distro: arch
+  version: rolling
+  pretty_name: Arch Linux
+  arch_fallback: true
+
+packages:
+  manager: pacman
+  oscap: openscap
+  ssg: ""
+
+scap:
+  xml_path: ""
+  profiles:
+    production:  ""
+    staging:     ""
+    development: ""
+
+backup:
+  config_dirs:
+    - /etc/ssh
+    - /etc/sysctl.conf
+    - /etc/sysctl.d
+    - /etc/security
+    - /etc/pam.d
+    - /etc/audit
+    - /etc/login.defs
+    - /etc/sudoers.d
+    - /etc/modprobe.d
+    - /etc/cron.d
+    - /etc/profile.d
+
+exclusions:
+  rules:    []
+  services: []
+  paths:    []
+  users:    []
+
+hooks:
+  pre_hardening:  ""
+  post_hardening: ""
+  on_rollback:    ""

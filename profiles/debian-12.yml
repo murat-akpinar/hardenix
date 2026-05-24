@@ -1,0 +1,42 @@
+meta:
+  distro: debian
+  version: "12"
+  pretty_name: Debian 12 (Bookworm)
+  arch_fallback: false
+
+packages:
+  manager: apt-get
+  oscap: openscap-utils
+  ssg: ssg-base ssg-debian
+
+scap:
+  xml_path: /usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml
+  profiles:
+    production:  xccdf_org.ssgproject.content_profile_anssi_bp28_enhanced
+    staging:     xccdf_org.ssgproject.content_profile_anssi_bp28_enhanced
+    development: xccdf_org.ssgproject.content_profile_standard
+
+backup:
+  config_dirs:
+    - /etc/ssh
+    - /etc/sysctl.conf
+    - /etc/sysctl.d
+    - /etc/security
+    - /etc/pam.d
+    - /etc/audit
+    - /etc/login.defs
+    - /etc/sudoers.d
+    - /etc/modprobe.d
+    - /etc/cron.d
+    - /etc/profile.d
+
+exclusions:
+  rules:    []
+  services: []
+  paths:    []
+  users:    []
+
+hooks:
+  pre_hardening:  ""
+  post_hardening: ""
+  on_rollback:    ""
