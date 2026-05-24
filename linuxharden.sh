@@ -578,7 +578,7 @@ run_install() {
         log_info "Env      : $ENV_PROFILE"
         [[ -n "$EXCLUSION_RULES" ]] && log_info "Excluded : $(echo "$EXCLUSION_RULES" | wc -w) rule(s)"
         echo ""
-        log_info "Scanning to show what would be fixed..."
+        log_info "Scanning — this may take a moment..."
         echo ""
 
         mkdir -p "$REPORT_DIR"
@@ -586,11 +586,59 @@ run_install() {
         local arf="${REPORT_DIR}/dryrun_${ts}.arf"
 
         # shellcheck disable=SC2046
-        oscap xccdf eval $(oscap_eval_args "$arf") 2>&1 \
-            | grep -E '^(Rule|Title|Result|Severity)' | grep -E 'fail|error' | head -30 \
-            || true
+        oscap xccdf eval $(oscap_eval_args "$arf") 2>/dev/null || true
 
-        [[ -f "$arf" ]] && print_scan_summary "$arf"
+        if [[ -f "$arf" ]]; then
+            python3 - "$arf" <<'PYEOF'
+import sys, xml.etree.ElementTree as ET
+
+NS   = 'http://checklists.nist.gov/xccdf/1.2'
+tree = ET.parse(sys.argv[1]).getroot()
+
+rules = {}
+for rule in tree.iter(f'{{{NS}}}Rule'):
+    rid   = rule.get('id', '')
+    title = rule.findtext(f'{{{NS}}}title') or ''
+    sev   = rule.get('severity', 'unknown')
+    rules[rid] = (title.strip(), sev)
+
+SEV_ORDER = {'high': 0, 'medium': 1, 'low': 2, 'unknown': 3}
+SEV_COLOR = {
+    'high':    '\033[0;31m',
+    'medium':  '\033[1;33m',
+    'low':     '\033[0;34m',
+    'unknown': '\033[0m',
+}
+NC   = '\033[0m'
+BOLD = '\033[1m'
+
+failed = []
+for rr in tree.iter(f'{{{NS}}}rule-result'):
+    r = rr.find(f'{{{NS}}}result')
+    if r is not None and r.text and r.text.strip() == 'fail':
+        rid = rr.get('idref', '')
+        title, sev = rules.get(rid, ('', 'unknown'))
+        failed.append((SEV_ORDER.get(sev, 3), sev, rid, title))
+
+failed.sort()
+
+if not failed:
+    print(f"  {BOLD}No failing rules found.{NC}")
+    sys.exit(0)
+
+print(f"  {BOLD}{'SEV':<8} {'RULE ID':<55} TITLE{NC}")
+print(f"  {'─'*8} {'─'*55} {'─'*30}")
+for _, sev, rid, title in failed:
+    col   = SEV_COLOR.get(sev, NC)
+    short = rid.split('_rule_')[-1] if '_rule_' in rid else rid
+    print(f"  {col}{sev:<8}{NC} {short:<55} {title[:60]}")
+
+print(f"\n  {BOLD}Total failing rules: {len(failed)}{NC}")
+PYEOF
+            echo ""
+            print_scan_summary "$arf"
+        fi
+
         echo ""
         log_info "Run without --dry-run to apply the above fixes."
         return
