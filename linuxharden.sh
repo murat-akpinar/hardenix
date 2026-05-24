@@ -172,7 +172,9 @@ download_conf() {
 # ── YAML Dependency ───────────────────────────────────────────────────────────
 
 check_pyyaml() {
-    python3 -c "import yaml" 2>/dev/null && return
+    if python3 -c "import yaml" 2>/dev/null; then
+        return
+    fi
 
     log_error "python3-yaml (pyyaml) is required to parse .yml profiles."
     if   command -v apt-get &>/dev/null; then echo -e "  Install: ${BOLD}apt-get install python3-yaml${NC}"
