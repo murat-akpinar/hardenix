@@ -75,7 +75,7 @@ usage() {
 # ── Argument Parsing ──────────────────────────────────────────────────────────
 
 parse_args() {
-    [[ $# -eq 0 ]] && usage
+    if [[ $# -eq 0 ]]; then usage; fi
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -93,8 +93,8 @@ parse_args() {
         shift
     done
 
-    [[ "$DRY_RUN" == true && -z "$MODE" ]] && MODE="install"
-    [[ -z "$MODE" ]] && { log_error "No mode specified."; echo ""; usage; }
+    if [[ "$DRY_RUN" == true && -z "$MODE" ]]; then MODE="install"; fi
+    if [[ -z "$MODE" ]]; then log_error "No mode specified."; echo ""; usage; fi
 
     case "$REPORT_FORMAT" in
         html|json|both) ;;
@@ -241,17 +241,17 @@ PYEOF
     fi
     eval "$output"
 
-    [[ -n "$PROFILE_OVERRIDE" ]] && PROFILE_ID="$PROFILE_OVERRIDE"
+    if [[ -n "$PROFILE_OVERRIDE" ]]; then PROFILE_ID="$PROFILE_OVERRIDE"; fi
 
-    [[ -z "$PKG_MANAGER" ]] && { log_error "Invalid .yml: missing packages.manager"; exit 1; }
+    if [[ -z "$PKG_MANAGER" ]]; then log_error "Invalid .yml: missing packages.manager"; exit 1; fi
 
     if [[ "$ARCH_FALLBACK" == "true" ]]; then
         MODE="${MODE}_arch"
         return
     fi
 
-    [[ -z "$XML_PATH" ]]   && { log_error "Invalid .yml: missing scap.xml_path"; exit 1; }
-    [[ -z "$PROFILE_ID" ]] && { log_error "Invalid .yml: missing scap.profiles.${ENV_PROFILE}"; exit 1; }
+    if [[ -z "$XML_PATH" ]];   then log_error "Invalid .yml: missing scap.xml_path"; exit 1; fi
+    if [[ -z "$PROFILE_ID" ]]; then log_error "Invalid .yml: missing scap.profiles.${ENV_PROFILE}"; exit 1; fi
 }
 
 # ── Dependency Check ──────────────────────────────────────────────────────────
@@ -271,7 +271,7 @@ check_dependencies() {
         missing=1
     fi
 
-    [[ $missing -eq 1 ]] && { echo ""; log_error "Missing dependencies. Aborting."; exit 1; }
+    if [[ $missing -eq 1 ]]; then echo ""; log_error "Missing dependencies. Aborting."; exit 1; fi
 
     local ver; ver=$(oscap --version 2>&1 | awk 'NR==1{print $NF}')
     log_info "oscap ${ver} — OK"
@@ -283,7 +283,7 @@ setup_tailoring() {
     ACTIVE_PROFILE_ID="$PROFILE_ID"
     TAILORING_FILE=""
 
-    [[ -z "$EXCLUSION_RULES" ]] && return
+    if [[ -z "$EXCLUSION_RULES" ]]; then return; fi
 
     local tailored_id="xccdf_linuxharden.custom_profile_tailored"
     local tfile="${TMP_DIR}/tailoring.xml"
@@ -653,7 +653,7 @@ PYEOF
     echo -e "  Backup → ${BOLD}${BACKUP_BASE}/${NC}"
     echo -n "  Continue? [y/N] "
     read -r confirm
-    [[ "${confirm,,}" != "y" ]] && { log_warn "Aborted."; exit 0; }
+    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
 
     run_hook "$HOOK_PRE" "pre_hardening"
 
@@ -700,24 +700,24 @@ run_uninstall() {
     log_section "Reverting Hardening"
 
     local latest="${BACKUP_BASE}/latest"
-    [[ ! -L "$latest" ]] && {
+    if [[ ! -L "$latest" ]]; then
         log_error "No backup found at ${BACKUP_BASE}/latest"
         echo "  Run --install first."
         exit 1
-    }
+    fi
 
     local backup_dir; backup_dir=$(readlink -f "$latest")
-    [[ ! -f "${backup_dir}/manifest.conf" ]] && {
+    if [[ ! -f "${backup_dir}/manifest.conf" ]]; then
         log_error "Backup manifest missing: ${backup_dir}/manifest.conf"
         exit 1
-    }
+    fi
 
     local ts; ts=$(awk -F'=' '/^timestamp/{print $2}' "${backup_dir}/manifest.conf")
     local rollback_hook; rollback_hook=$(awk -F'=' '/^hook_rollback/{print $2}' "${backup_dir}/manifest.conf")
     log_info "Restoring from: $ts"
     echo -n "  Continue? [y/N] "
     read -r confirm
-    [[ "${confirm,,}" != "y" ]] && { log_warn "Aborted."; exit 0; }
+    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
 
     # Restore config files
     if [[ -f "${backup_dir}/configs.tar.gz" ]]; then
@@ -758,7 +758,7 @@ run_uninstall() {
     done
 
     # Rollback hook (read from manifest so it's the hook that was set at install time)
-    [[ -n "$rollback_hook" ]] && run_hook "$rollback_hook" "on_rollback"
+    if [[ -n "$rollback_hook" ]]; then run_hook "$rollback_hook" "on_rollback"; fi
 
     log_info "Revert complete."
     log_warn "A reboot is strongly recommended."
@@ -789,9 +789,9 @@ arch_basic_check() {
     _chk() {
         local label="$1"; shift
         if eval "$*" &>/dev/null; then
-            echo -e "  ${GREEN}[PASS]${NC} $label"; ((pass++))
+            echo -e "  ${GREEN}[PASS]${NC} $label"; pass=$((pass + 1))
         else
-            echo -e "  ${RED}[FAIL]${NC} $label"; ((fail++))
+            echo -e "  ${RED}[FAIL]${NC} $label"; fail=$((fail + 1))
         fi
     }
 
