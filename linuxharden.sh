@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly VERSION="1.1.0"
+readonly SCRIPT_VERSION="1.1.0"
 readonly GITHUB_RAW="https://raw.githubusercontent.com/YOUR_GITHUB_USER/Linux-Hardering/main/profiles"
 readonly BACKUP_BASE="/var/lib/linuxharden"
 readonly REPORT_DIR="$(pwd)/reports"
@@ -44,7 +44,7 @@ banner() {
     echo "  ███████╗██║██║ ╚████║╚██████╔╝██╔╝ ██╗██║  ██║██║  ██║██║  ██║██████╔╝"
     echo "  ╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝"
     echo -e "${NC}"
-    echo -e "  ${BOLD}Linux Hardening Script v${VERSION}${NC} — powered by OpenSCAP"
+    echo -e "  ${BOLD}Linux Hardening Script v${SCRIPT_VERSION}${NC} — powered by OpenSCAP"
     echo ""
 }
 
