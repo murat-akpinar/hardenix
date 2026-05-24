@@ -57,7 +57,7 @@ usage() {
     echo "  --uninstall         Revert hardening from latest backup"
     echo ""
     echo -e "${BOLD}Options:${NC}"
-    echo "  --dry-run           Preview what --install would change (no writes)"
+    echo "  --dry-run           Preview what would change without applying (implies --install)"
     echo "  --env <profile>     Environment: production | staging | development  (default: production)"
     echo "  --format <type>     Report format: html | json | both  (default: html)"
     echo "  --profile <id>      Override SCAP profile ID"
@@ -66,7 +66,7 @@ usage() {
     echo ""
     echo -e "${BOLD}Examples:${NC}"
     echo "  sudo $(basename "$0") --scan"
-    echo "  sudo $(basename "$0") --install --dry-run"
+    echo "  sudo $(basename "$0") --dry-run"
     echo "  sudo $(basename "$0") --install --env development"
     echo "  sudo $(basename "$0") --uninstall"
     exit 0
@@ -93,6 +93,7 @@ parse_args() {
         shift
     done
 
+    [[ "$DRY_RUN" == true && -z "$MODE" ]] && MODE="install"
     [[ -z "$MODE" ]] && { log_error "No mode specified."; echo ""; usage; }
 
     case "$REPORT_FORMAT" in
