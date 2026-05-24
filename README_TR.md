@@ -16,10 +16,11 @@ OpenSCAP tabanlı Linux sıkılaştırma aracı. Distro'ya göre YAML profili in
 
 ## Özellikler
 
+- **`--install`** — OpenSCAP ve SCAP içeriklerini distro'ya göre otomatik kurar; Ubuntu 24.04 gibi repo'su yetersiz distrolarda GitHub'dan indirir
+- **`--apply`** — Sıkılaştırma uygular; önce yedek alır, sonra before/after skor gösterir
 - **`--scan`** — CIS/ANSSI/STIG profiliyle uyumluluk taraması, HTML/JSON rapor
-- **`--install`** — Sıkılaştırma uygular; önce yedek alır, sonra before/after skor gösterir
 - **`--uninstall`** — Son yedekten tüm değişiklikleri geri alır
-- **`--dry-run`** — Neyin değişeceğini gösterir, sisteme dokunmaz
+- **`--dry-run`** — Neyin değişeceğini severity gruplarına göre gösterir, sisteme dokunmaz
 - **`--env`** — `production` / `staging` / `development` profili seçer
 - **Exclusions** — Belirli kuralları, servisleri veya path'leri atlama
 - **Hooks** — Sıkılaştırma öncesi/sonrası ve rollback için özel script çalıştırma
@@ -46,44 +47,43 @@ OpenSCAP tabanlı Linux sıkılaştırma aracı. Distro'ya göre YAML profili in
 ## Kurulum
 
 ```bash
-# Ubuntu / Debian
-sudo apt-get install openscap-utils ssg-base ssg-debderived python3-yaml
-
-# RHEL / Rocky / AlmaLinux
-sudo dnf install openscap-utils scap-security-guide python3-pyyaml
-
-# Fedora
-sudo dnf install openscap-utils scap-security-guide python3-pyyaml
-
-# openSUSE
-sudo zypper install openscap scap-security-guide python3-PyYAML
-
-# Arch
-sudo pacman -S openscap python-yaml
-
-# Script'i çalıştırılabilir yap
+git clone https://github.com/YOUR_GITHUB_USER/hardenix.git
+cd hardenix
 chmod +x linuxharden.sh
+
+# OpenSCAP + SCAP içeriklerini otomatik kur (tüm distrolarda çalışır)
+sudo ./linuxharden.sh --install
 ```
+
+`--install` aşağıdakileri otomatik yapar:
+
+- Distro'yu tespit eder (`apt-get` / `dnf` / `zypper` / `pacman`)
+- Ubuntu'da `universe` reposunu etkinleştirir
+- `openscap` ve distro'ya uygun SSG paketini kurar
+- Ubuntu 24.04 gibi repo'su yetersiz sistemlerde SCAP içeriğini GitHub'dan indirir (`/usr/share/xml/scap/ssg/content/` altına koyar)
 
 ---
 
 ## Kullanım
 
 ```bash
+# 1. Bağımlılıkları kur (ilk kez)
+sudo ./linuxharden.sh --install
+
+# 2. Neyin değişeceğini önce gör — sisteme dokunmaz
+sudo ./linuxharden.sh --dry-run
+
+# 3. Sıkılaştırma uygula (yedek alır → uygular → doğrular)
+sudo ./linuxharden.sh --apply
+
+# Development ortamı için daha hafif profil
+sudo ./linuxharden.sh --apply --env development
+
 # Uyumluluk taraması yap
 sudo ./linuxharden.sh --scan
 
 # HTML + JSON rapor üret
 sudo ./linuxharden.sh --scan --format both
-
-# Neyin değişeceğini önce gör (sisteme dokunmaz)
-sudo ./linuxharden.sh --install --dry-run
-
-# Development ortamı için daha hafif profil
-sudo ./linuxharden.sh --install --env development
-
-# Sıkılaştırma uygula (yedek alır → uygular → doğrular)
-sudo ./linuxharden.sh --install
 
 # Sıkılaştırmayı geri al
 sudo ./linuxharden.sh --uninstall
@@ -101,10 +101,11 @@ sudo ./linuxharden.sh --scan --conf ./profiles/ubuntu-22.04.yml
 
 | Parametre | Açıklama |
 |-----------|----------|
+| `--install` | OpenSCAP + SCAP içeriklerini distro'ya göre otomatik kurar |
+| `--apply` | Sıkılaştırma uygular (yedek → uygula → doğrula) |
 | `--scan` | Compliance taraması, rapor üretir |
-| `--install` | Sıkılaştırma uygular (yedek → uygula → doğrula) |
 | `--uninstall` | Son yedekten geri alır |
-| `--dry-run` | `--install` ile: değişiklikleri göster, uygulama |
+| `--dry-run` | Başarısız kuralları severity gruplarına göre gösterir, sisteme dokunmaz (`--apply`'ı ima eder) |
 | `--env <profil>` | `production` \| `staging` \| `development` (varsayılan: production) |
 | `--format <tip>` | `html` \| `json` \| `both` (varsayılan: html) |
 | `--profile <id>` | SCAP profil ID override |
@@ -146,8 +147,8 @@ exclusions:
   users:    []
 
 hooks:
-  pre_hardening:  ""  # --install öncesi çalışır
-  post_hardening: ""  # --install sonrası çalışır
+  pre_hardening:  ""  # --apply öncesi çalışır
+  post_hardening: ""  # --apply sonrası çalışır
   on_rollback:    ""  # --uninstall sırasında çalışır
 ```
 
@@ -155,7 +156,7 @@ hooks:
 
 ## Yedekleme
 
-`--install` her çalışmada önce `/var/lib/linuxharden/<tarih>/` altına yedek alır:
+`--apply` her çalışmada önce `/var/lib/linuxharden/<tarih>/` altına yedek alır:
 
 ```
 /var/lib/linuxharden/
@@ -187,7 +188,7 @@ hooks:
 
 > **Root yetkisi gereklidir.** Script `sudo` ile çalıştırılmalıdır.
 
-- `--install` SSH ayarlarını ve sistem servislerini değiştirebilir.
+- `--apply` SSH ayarlarını ve sistem servislerini değiştirebilir.
 - `--uninstall` sonrası tam geri dönüş için **reboot önerilir**.
 - Arch Linux'ta SSG desteği olmadığından temel `sysctl` + SSH hardening uygulanır.
 - `--dry-run` sisteme hiçbir şey yazmaz, güvenle kullanılabilir.

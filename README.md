@@ -16,10 +16,11 @@ OpenSCAP-based Linux hardening tool. Downloads a YAML profile based on the distr
 
 ## Features
 
+- **`--install`** — Automatically installs OpenSCAP and SCAP content for the detected distro; downloads from GitHub for distros with outdated repos (e.g. Ubuntu 24.04)
+- **`--apply`** — Applies hardening; takes a backup first, then shows before/after score
 - **`--scan`** — Compliance scan with CIS/ANSSI/STIG profile, generates HTML/JSON report
-- **`--install`** — Applies hardening; takes a backup first, then shows before/after score
 - **`--uninstall`** — Rolls back all changes from the latest backup
-- **`--dry-run`** — Shows what would change without touching the system
+- **`--dry-run`** — Shows failing rules grouped by severity without touching the system
 - **`--env`** — Selects `production` / `staging` / `development` profile
 - **Exclusions** — Skip specific rules, services, or paths
 - **Hooks** — Run custom scripts before/after hardening and on rollback
@@ -46,44 +47,43 @@ OpenSCAP-based Linux hardening tool. Downloads a YAML profile based on the distr
 ## Installation
 
 ```bash
-# Ubuntu / Debian
-sudo apt-get install openscap-utils ssg-base ssg-debderived python3-yaml
-
-# RHEL / Rocky / AlmaLinux
-sudo dnf install openscap-utils scap-security-guide python3-pyyaml
-
-# Fedora
-sudo dnf install openscap-utils scap-security-guide python3-pyyaml
-
-# openSUSE
-sudo zypper install openscap scap-security-guide python3-PyYAML
-
-# Arch
-sudo pacman -S openscap python-yaml
-
-# Make the script executable
+git clone https://github.com/YOUR_GITHUB_USER/hardenix.git
+cd hardenix
 chmod +x linuxharden.sh
+
+# Install OpenSCAP + SCAP content automatically (works on all supported distros)
+sudo ./linuxharden.sh --install
 ```
+
+`--install` handles the following automatically:
+
+- Detects the distro and package manager (`apt-get` / `dnf` / `zypper` / `pacman`)
+- Enables the `universe` repo on Ubuntu
+- Installs `openscap` and the appropriate SSG package for the distro
+- Downloads SCAP content from GitHub for distros whose repos are too old (e.g. Ubuntu 24.04 lacks `ssg-ubuntu2404-ds.xml` in `ssg-debderived` 0.1.71)
 
 ---
 
 ## Usage
 
 ```bash
+# 1. Install dependencies (first time only)
+sudo ./linuxharden.sh --install
+
+# 2. Preview what would change — does not touch the system
+sudo ./linuxharden.sh --dry-run
+
+# 3. Apply hardening (backup → apply → verify)
+sudo ./linuxharden.sh --apply
+
+# Use a lighter profile for development environments
+sudo ./linuxharden.sh --apply --env development
+
 # Run a compliance scan
 sudo ./linuxharden.sh --scan
 
 # Generate HTML + JSON report
 sudo ./linuxharden.sh --scan --format both
-
-# Preview what would change (does not touch the system)
-sudo ./linuxharden.sh --install --dry-run
-
-# Use a lighter profile for development environments
-sudo ./linuxharden.sh --install --env development
-
-# Apply hardening (backup → apply → verify)
-sudo ./linuxharden.sh --install
 
 # Roll back hardening
 sudo ./linuxharden.sh --uninstall
@@ -101,10 +101,11 @@ sudo ./linuxharden.sh --scan --conf ./profiles/ubuntu-22.04.yml
 
 | Parameter | Description |
 |-----------|-------------|
+| `--install` | Installs OpenSCAP + SCAP content for the detected distro |
+| `--apply` | Applies hardening (backup → apply → verify) |
 | `--scan` | Compliance scan, generates report |
-| `--install` | Applies hardening (backup → apply → verify) |
 | `--uninstall` | Rolls back from latest backup |
-| `--dry-run` | Used with `--install`: shows changes, does not apply |
+| `--dry-run` | Shows failing rules grouped by severity, does not apply (implies `--apply`) |
 | `--env <profile>` | `production` \| `staging` \| `development` (default: production) |
 | `--format <type>` | `html` \| `json` \| `both` (default: html) |
 | `--profile <id>` | SCAP profile ID override |
@@ -146,8 +147,8 @@ exclusions:
   users:    []
 
 hooks:
-  pre_hardening:  ""  # Runs before --install
-  post_hardening: ""  # Runs after --install
+  pre_hardening:  ""  # Runs before --apply
+  post_hardening: ""  # Runs after --apply
   on_rollback:    ""  # Runs during --uninstall
 ```
 
@@ -155,7 +156,7 @@ hooks:
 
 ## Backup
 
-`--install` always takes a backup under `/var/lib/linuxharden/<date>/` before making any changes:
+`--apply` always takes a backup under `/var/lib/linuxharden/<date>/` before making any changes:
 
 ```
 /var/lib/linuxharden/
@@ -187,7 +188,7 @@ Saved to the `./reports/` directory:
 
 > **Root privileges required.** The script must be run with `sudo`.
 
-- `--install` may modify SSH settings and system services.
+- `--apply` may modify SSH settings and system services.
 - A **reboot is recommended** after `--uninstall` for a complete rollback.
 - Arch Linux has no SSG support; basic `sysctl` + SSH hardening is applied instead.
 - `--dry-run` writes nothing to the system and is safe to use.
