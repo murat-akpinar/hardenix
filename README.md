@@ -17,9 +17,10 @@ OpenSCAP-based Linux hardening tool. Downloads a YAML profile based on the distr
 ## Features
 
 - **`--install`** — Automatically installs OpenSCAP and SCAP content for the detected distro; downloads from GitHub for distros with outdated repos (e.g. Ubuntu 24.04)
+- **`--uninstall`** — Removes OpenSCAP + SCAP packages installed by `--install`
 - **`--apply`** — Applies hardening; takes a backup first, then shows before/after score
+- **`--unapply`** — Reverts hardening changes from the latest backup
 - **`--scan`** — Compliance scan with CIS/ANSSI/STIG profile, generates HTML/JSON report
-- **`--uninstall`** — Rolls back all changes from the latest backup
 - **`--dry-run`** — Shows failing rules grouped by severity without touching the system
 - **`--env`** — Selects `production` / `staging` / `development` profile
 - **Exclusions** — Skip specific rules, services, or paths
@@ -79,13 +80,16 @@ sudo ./linuxharden.sh --apply
 # Use a lighter profile for development environments
 sudo ./linuxharden.sh --apply --env development
 
+# Revert hardening (restores configs from backup)
+sudo ./linuxharden.sh --unapply
+
 # Run a compliance scan
 sudo ./linuxharden.sh --scan
 
 # Generate HTML + JSON report
 sudo ./linuxharden.sh --scan --format both
 
-# Roll back hardening
+# Remove OpenSCAP packages entirely
 sudo ./linuxharden.sh --uninstall
 
 # Scan with a specific profile ID
@@ -102,9 +106,10 @@ sudo ./linuxharden.sh --scan --conf ./profiles/ubuntu-22.04.yml
 | Parameter | Description |
 |-----------|-------------|
 | `--install` | Installs OpenSCAP + SCAP content for the detected distro |
+| `--uninstall` | Removes OpenSCAP + SCAP packages |
 | `--apply` | Applies hardening (backup → apply → verify) |
+| `--unapply` | Reverts hardening settings from the latest backup |
 | `--scan` | Compliance scan, generates report |
-| `--uninstall` | Rolls back from latest backup |
 | `--dry-run` | Shows failing rules grouped by severity, does not apply (implies `--apply`) |
 | `--env <profile>` | `production` \| `staging` \| `development` (default: production) |
 | `--format <type>` | `html` \| `json` \| `both` (default: html) |
@@ -149,14 +154,14 @@ exclusions:
 hooks:
   pre_hardening:  ""  # Runs before --apply
   post_hardening: ""  # Runs after --apply
-  on_rollback:    ""  # Runs during --uninstall
+  on_rollback:    ""  # Runs during --unapply
 ```
 
 ---
 
 ## Backup
 
-`--apply` always takes a backup under `/var/lib/linuxharden/<date>/` before making any changes:
+`--apply` always takes a backup under `/var/lib/linuxharden/<date>/` before making any changes (`--unapply` restores from this backup):
 
 ```
 /var/lib/linuxharden/
@@ -189,6 +194,7 @@ Saved to the `./reports/` directory:
 > **Root privileges required.** The script must be run with `sudo`.
 
 - `--apply` may modify SSH settings and system services.
-- A **reboot is recommended** after `--uninstall` for a complete rollback.
+- A **reboot is recommended** after `--unapply` for a complete rollback.
+- `--uninstall` removes packages only; run `--unapply` first if you also want to revert hardening settings.
 - Arch Linux has no SSG support; basic `sysctl` + SSH hardening is applied instead.
 - `--dry-run` writes nothing to the system and is safe to use.

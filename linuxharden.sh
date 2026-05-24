@@ -53,9 +53,10 @@ usage() {
     echo ""
     echo -e "${BOLD}Modes:${NC}"
     echo "  --install           Install OpenSCAP + SCAP content for this distro"
+    echo "  --uninstall         Remove OpenSCAP + SCAP packages installed by --install"
     echo "  --scan              Scan system compliance and generate report"
     echo "  --apply             Apply hardening (creates backup, then verifies)"
-    echo "  --uninstall         Revert hardening from latest backup"
+    echo "  --unapply           Revert hardening from latest backup"
     echo ""
     echo -e "${BOLD}Options:${NC}"
     echo "  --dry-run           Preview what would change without applying (implies --apply)"
@@ -70,6 +71,7 @@ usage() {
     echo "  sudo $(basename "$0") --scan"
     echo "  sudo $(basename "$0") --dry-run"
     echo "  sudo $(basename "$0") --apply --env development"
+    echo "  sudo $(basename "$0") --unapply"
     echo "  sudo $(basename "$0") --uninstall"
     exit 0
 }
@@ -83,8 +85,9 @@ parse_args() {
         case "$1" in
             --scan)      MODE="scan" ;;
             --install)   MODE="install" ;;
-            --apply)     MODE="apply" ;;
             --uninstall) MODE="uninstall" ;;
+            --apply)     MODE="apply" ;;
+            --unapply)   MODE="unapply" ;;
             --dry-run)   DRY_RUN=true ;;
             --env)       shift; ENV_PROFILE="${1:-production}" ;;
             --format)    shift; REPORT_FORMAT="${1:-html}" ;;
@@ -250,7 +253,7 @@ PYEOF
 
     if [[ "$ARCH_FALLBACK" == "true" ]]; then
         case "$MODE" in
-            scan|apply|uninstall) MODE="${MODE}_arch" ;;
+            scan|apply|unapply) MODE="${MODE}_arch" ;;
         esac
         return
     fi
@@ -958,18 +961,18 @@ PYEOF
     echo ""
     log_info "Backup at: $backup_dir"
     log_warn "A reboot may be required for some changes to take effect."
-    echo -e "  To revert: ${BOLD}sudo $(basename "$0") --uninstall${NC}"
+    echo -e "  To revert: ${BOLD}sudo $(basename "$0") --unapply${NC}"
 }
 
-# ── Uninstall ─────────────────────────────────────────────────────────────────
+# ── Unapply ───────────────────────────────────────────────────────────────────
 
-run_uninstall() {
+run_unapply() {
     log_section "Reverting Hardening"
 
     local latest="${BACKUP_BASE}/latest"
     if [[ ! -L "$latest" ]]; then
         log_error "No backup found at ${BACKUP_BASE}/latest"
-        echo "  Run --install first."
+        echo "  Run --apply first."
         exit 1
     fi
 
@@ -1031,10 +1034,46 @@ run_uninstall() {
     log_warn "A reboot is strongly recommended."
 }
 
+# ── Uninstall ─────────────────────────────────────────────────────────────────
+
+run_uninstall() {
+    log_section "Removing OpenSCAP + SCAP Packages"
+    echo -e "  ${YELLOW}${BOLD}WARNING:${NC} OpenSCAP and SCAP content packages will be removed."
+    echo -e "  You will no longer be able to run ${BOLD}--scan${NC} or ${BOLD}--apply${NC}."
+    echo -e "  Hardening settings already applied remain in place — use ${BOLD}--unapply${NC} first if needed."
+    echo ""
+    echo -n "  Continue? [y/N] "
+    read -r confirm
+    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
+
+    echo ""
+    log_info "Removing packages..."
+
+    # shellcheck disable=SC2086
+    case "$PKG_MANAGER" in
+        apt-get)
+            apt-get remove -y $OSCAP_PKG $SSG_PKG 2>/dev/null || true
+            apt-get autoremove -y 2>/dev/null || true
+            ;;
+        dnf)
+            dnf remove -y $OSCAP_PKG $SSG_PKG 2>/dev/null || true
+            ;;
+        zypper)
+            zypper remove -y $OSCAP_PKG $SSG_PKG 2>/dev/null || true
+            ;;
+        pacman)
+            pacman -Rns --noconfirm openscap 2>/dev/null || true
+            ;;
+    esac
+
+    log_info "OpenSCAP packages removed."
+    log_warn "Hardening settings are still active. Run ${BOLD}--unapply${NC} to revert them."
+}
+
 # ── Arch Fallback ─────────────────────────────────────────────────────────────
 
-run_scan_arch()      { log_warn "Arch: full SCAP not available (no SSG)."; arch_basic_check; }
-run_uninstall_arch() { run_uninstall; }
+run_scan_arch()     { log_warn "Arch: full SCAP not available (no SSG)."; arch_basic_check; }
+run_unapply_arch()  { run_unapply; }
 
 run_apply_arch() {
     if [[ "$DRY_RUN" == true ]]; then
@@ -1117,7 +1156,7 @@ EOF
 
     log_info "Backup at: $backup_dir"
     log_warn "Review changes and reboot."
-    echo -e "  To revert: ${BOLD}sudo $(basename "$0") --uninstall${NC}"
+    echo -e "  To revert: ${BOLD}sudo $(basename "$0") --unapply${NC}"
 }
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
@@ -1142,18 +1181,19 @@ main() {
     check_pyyaml
     parse_conf
 
-    if [[ "$MODE" != "uninstall" && "$MODE" != "uninstall_arch" ]]; then
+    if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" ]]; then
         check_dependencies
         setup_tailoring
     fi
 
     case "$MODE" in
-        scan)           run_scan ;;
-        apply)          run_apply ;;
-        uninstall)      run_uninstall ;;
-        scan_arch)      run_scan_arch ;;
-        apply_arch)     run_apply_arch ;;
-        uninstall_arch) run_uninstall_arch ;;
+        scan)          run_scan ;;
+        apply)         run_apply ;;
+        unapply)       run_unapply ;;
+        uninstall)     run_uninstall ;;
+        scan_arch)     run_scan_arch ;;
+        apply_arch)    run_apply_arch ;;
+        unapply_arch)  run_unapply_arch ;;
     esac
 }
 
