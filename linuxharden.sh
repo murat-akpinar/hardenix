@@ -28,6 +28,18 @@ ACTIVE_PROFILE_ID="" TAILORING_FILE=""
 log_info()    { echo -e "${GREEN}[✓]${NC} $1"; }
 log_warn()    { echo -e "${YELLOW}[!]${NC} $1"; }
 log_error()   { echo -e "${RED}[✗]${NC} $1" >&2; }
+
+# Spinner: _spin <pid> <message> — shows animated progress while pid is running
+_spin() {
+    local pid=$1 msg=$2
+    local frames=('|' '/' '-' '\') i=0
+    while kill -0 "$pid" 2>/dev/null; do
+        printf "\r  ${CYAN}[%s]${NC}  %s" "${frames[i % 4]}" "$msg"
+        i=$((i + 1))
+        sleep 0.12
+    done
+    printf "\r%-72s\r" ""
+}
 log_section() {
     echo ""
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -780,15 +792,16 @@ run_apply() {
         log_info "Env      : $ENV_PROFILE"
         [[ -n "$EXCLUSION_RULES" ]] && log_info "Excluded : $(echo "$EXCLUSION_RULES" | wc -w) rule(s)"
         echo ""
-        log_info "Scanning — this may take a moment..."
-        echo ""
-
         mkdir -p "$REPORT_DIR"
         local ts; ts=$(date +%Y%m%d_%H%M%S)
         local arf="${REPORT_DIR}/dryrun_${ts}.arf"
 
+        local scan_pid
         # shellcheck disable=SC2046
-        oscap xccdf eval $(oscap_eval_args "$arf") >/dev/null 2>&1 || true
+        oscap xccdf eval $(oscap_eval_args "$arf") >/dev/null 2>&1 &
+        scan_pid=$!
+        _spin "$scan_pid" "Scanning system..."
+        wait "$scan_pid" 2>/dev/null || true
 
         if [[ -f "$arf" ]]; then
             python3 - "$arf" <<'PYEOF'
@@ -885,26 +898,35 @@ PYEOF
 
     # Baseline score before remediation
     echo ""
-    log_info "Baseline scan (before)..."
     local pre_arf="${backup_dir}/pre_hardening.arf"
+    local pre_pid
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "$pre_arf") >/dev/null 2>&1 || true
+    oscap xccdf eval $(oscap_eval_args "$pre_arf") >/dev/null 2>&1 &
+    pre_pid=$!
+    _spin "$pre_pid" "Baseline scan (before)..."
+    wait "$pre_pid" 2>/dev/null || true
     local pre_score; pre_score=$(get_score "$pre_arf")
     log_info "Baseline score: ${pre_score}%"
 
     # Apply fixes
     echo ""
-    log_info "Applying fixes — this may take several minutes..."
+    local fix_pid
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "${backup_dir}/remediation.arf" "true") >/dev/null 2>&1 || true
+    oscap xccdf eval $(oscap_eval_args "${backup_dir}/remediation.arf" "true") >/dev/null 2>&1 &
+    fix_pid=$!
+    _spin "$fix_pid" "Applying fixes — this may take several minutes..."
+    wait "$fix_pid" 2>/dev/null || true
     log_info "Fixes applied."
 
     # Verification scan after remediation
     echo ""
-    log_info "Verification scan (after)..."
     local post_arf="${backup_dir}/post_hardening.arf"
+    local post_pid
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "$post_arf") >/dev/null 2>&1 || true
+    oscap xccdf eval $(oscap_eval_args "$post_arf") >/dev/null 2>&1 &
+    post_pid=$!
+    _spin "$post_pid" "Verification scan (after)..."
+    wait "$post_pid" 2>/dev/null || true
     local post_score; post_score=$(get_score "$post_arf")
 
     echo ""
