@@ -52,12 +52,13 @@ usage() {
     echo -e "${BOLD}Usage:${NC} $(basename "$0") [MODE] [OPTIONS]"
     echo ""
     echo -e "${BOLD}Modes:${NC}"
+    echo "  --install           Install OpenSCAP + SCAP content for this distro"
     echo "  --scan              Scan system compliance and generate report"
-    echo "  --install           Apply hardening (creates backup, then verifies)"
+    echo "  --apply             Apply hardening (creates backup, then verifies)"
     echo "  --uninstall         Revert hardening from latest backup"
     echo ""
     echo -e "${BOLD}Options:${NC}"
-    echo "  --dry-run           Preview what would change without applying (implies --install)"
+    echo "  --dry-run           Preview what would change without applying (implies --apply)"
     echo "  --env <profile>     Environment: production | staging | development  (default: production)"
     echo "  --format <type>     Report format: html | json | both  (default: html)"
     echo "  --profile <id>      Override SCAP profile ID"
@@ -65,9 +66,10 @@ usage() {
     echo "  --help              Show this help"
     echo ""
     echo -e "${BOLD}Examples:${NC}"
+    echo "  sudo $(basename "$0") --install"
     echo "  sudo $(basename "$0") --scan"
     echo "  sudo $(basename "$0") --dry-run"
-    echo "  sudo $(basename "$0") --install --env development"
+    echo "  sudo $(basename "$0") --apply --env development"
     echo "  sudo $(basename "$0") --uninstall"
     exit 0
 }
@@ -81,6 +83,7 @@ parse_args() {
         case "$1" in
             --scan)      MODE="scan" ;;
             --install)   MODE="install" ;;
+            --apply)     MODE="apply" ;;
             --uninstall) MODE="uninstall" ;;
             --dry-run)   DRY_RUN=true ;;
             --env)       shift; ENV_PROFILE="${1:-production}" ;;
@@ -93,7 +96,7 @@ parse_args() {
         shift
     done
 
-    if [[ "$DRY_RUN" == true && -z "$MODE" ]]; then MODE="install"; fi
+    if [[ "$DRY_RUN" == true && -z "$MODE" ]]; then MODE="apply"; fi
     if [[ -z "$MODE" ]]; then log_error "No mode specified."; echo ""; usage; fi
 
     case "$REPORT_FORMAT" in
@@ -106,8 +109,8 @@ parse_args() {
         *) log_error "Invalid --env: $ENV_PROFILE (use: production | staging | development)"; exit 1 ;;
     esac
 
-    if [[ "$DRY_RUN" == true && "$MODE" != "install" ]]; then
-        log_warn "--dry-run only applies to --install, ignoring."
+    if [[ "$DRY_RUN" == true && "$MODE" != "apply" ]]; then
+        log_warn "--dry-run only applies to --apply, ignoring."
         DRY_RUN=false
     fi
 }
@@ -246,7 +249,9 @@ PYEOF
     if [[ -z "$PKG_MANAGER" ]]; then log_error "Invalid .yml: missing packages.manager"; exit 1; fi
 
     if [[ "$ARCH_FALLBACK" == "true" ]]; then
-        MODE="${MODE}_arch"
+        case "$MODE" in
+            scan|apply|uninstall) MODE="${MODE}_arch" ;;
+        esac
         return
     fi
 
@@ -568,6 +573,166 @@ print(f"  {B}└{'─'*46}┘{NC}")
 PYEOF
 }
 
+# ── Dependency Installer ─────────────────────────────────────────────────────
+
+install_ssg_from_github() {
+    local xml_filename; xml_filename=$(basename "$XML_PATH")
+    local dest_dir; dest_dir=$(dirname "$XML_PATH")
+    local ssg_ver="0.1.74"
+
+    log_info "Fetching latest SSG release from GitHub..."
+    local api_out=""
+    if command -v curl &>/dev/null; then
+        if api_out=$(curl -sf \
+            "https://api.github.com/repos/ComplianceAsCode/content/releases/latest" 2>/dev/null); then
+            local fv
+            if fv=$(echo "$api_out" | \
+                python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))" \
+                2>/dev/null); then
+                ssg_ver="$fv"
+            fi
+        fi
+    elif command -v wget &>/dev/null; then
+        if api_out=$(wget -qO- \
+            "https://api.github.com/repos/ComplianceAsCode/content/releases/latest" 2>/dev/null); then
+            local fv
+            if fv=$(echo "$api_out" | \
+                python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'].lstrip('v'))" \
+                2>/dev/null); then
+                ssg_ver="$fv"
+            fi
+        fi
+    fi
+    log_info "Downloading SSG v${ssg_ver}..."
+
+    local zip_url="https://github.com/ComplianceAsCode/content/releases/download/v${ssg_ver}/scap-security-guide-${ssg_ver}.zip"
+    local tmp_zip; tmp_zip="/tmp/ssg_$$.zip"
+    local tmp_dir; tmp_dir="/tmp/ssg_extract_$$"
+
+    local downloaded=false
+    if command -v wget &>/dev/null; then
+        if wget -q --show-progress "$zip_url" -O "$tmp_zip"; then downloaded=true; fi
+    elif command -v curl &>/dev/null; then
+        if curl -L --progress-bar "$zip_url" -o "$tmp_zip"; then downloaded=true; fi
+    else
+        log_error "wget or curl is required to download SSG content."
+        exit 1
+    fi
+
+    if [[ "$downloaded" != true ]]; then
+        log_error "Download failed. Install manually from:"
+        echo "  https://github.com/ComplianceAsCode/content/releases"
+        rm -f "$tmp_zip"
+        exit 1
+    fi
+
+    log_info "Extracting..."
+    mkdir -p "$tmp_dir"
+    python3 -m zipfile -e "$tmp_zip" "$tmp_dir" 2>/dev/null \
+        || { log_error "Failed to extract archive."; rm -rf "$tmp_zip" "$tmp_dir"; exit 1; }
+
+    local xml_src="${tmp_dir}/scap-security-guide-${ssg_ver}/${xml_filename}"
+    if [[ ! -f "$xml_src" ]]; then
+        log_error "Expected file not in archive: ${xml_filename}"
+        log_warn "This distro may not be supported in SSG v${ssg_ver} yet."
+        rm -rf "$tmp_zip" "$tmp_dir"
+        exit 1
+    fi
+
+    mkdir -p "$dest_dir"
+    cp "$xml_src" "$dest_dir/"
+    rm -rf "$tmp_zip" "$tmp_dir"
+    log_info "SCAP content installed: ${dest_dir}/${xml_filename}"
+}
+
+run_install_deps() {
+    log_section "Installing OpenSCAP Dependencies"
+
+    # Derive package manager from distro before parse_conf (python3-yaml not yet installed)
+    local pm py_pkg
+    case "$DISTRO_ID" in
+        ubuntu|debian)
+            pm="apt-get"; py_pkg="python3-yaml" ;;
+        rhel|centos|rocky|almalinux|fedora)
+            pm="dnf"; py_pkg="python3-pyyaml" ;;
+        opensuse*|sles)
+            pm="zypper"; py_pkg="python3-PyYAML" ;;
+        arch)
+            pm="pacman"; py_pkg="python-yaml" ;;
+        *)
+            log_error "Unsupported distro for automatic installation: $DISTRO_ID"
+            exit 1 ;;
+    esac
+
+    # Ubuntu: enable universe repo first
+    if [[ "$DISTRO_ID" == "ubuntu" ]]; then
+        log_info "Enabling universe repository..."
+        if ! grep -rq "^deb.*universe" /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null; then
+            add-apt-repository -y universe
+        fi
+    fi
+
+    # Update package lists for apt systems
+    if [[ "$pm" == "apt-get" ]]; then
+        log_info "Updating package lists..."
+        apt-get update -q
+    fi
+
+    # Install python3-yaml so parse_conf can run
+    log_info "Installing python3-yaml..."
+    case "$pm" in
+        apt-get) apt-get install -y "$py_pkg" ;;
+        dnf)     dnf install -y "$py_pkg" ;;
+        zypper)  zypper install -y "$py_pkg" ;;
+        pacman)  pacman -S --noconfirm "$py_pkg" ;;
+    esac
+
+    # Parse the profile to get PKG_MANAGER, OSCAP_PKG, SSG_PKG, XML_PATH
+    parse_conf
+
+    # Arch: openscap only, no SSG
+    if [[ "$ARCH_FALLBACK" == "true" ]]; then
+        log_info "Arch Linux: installing openscap (no SSG available)..."
+        pacman -S --noconfirm openscap
+        log_info "Done. Use --apply for basic hardening mode."
+        return
+    fi
+
+    # Install openscap
+    log_info "Installing OpenSCAP (${OSCAP_PKG})..."
+    case "$PKG_MANAGER" in
+        apt-get) apt-get install -y $OSCAP_PKG ;;
+        dnf)     dnf install -y $OSCAP_PKG ;;
+        zypper)  zypper install -y $OSCAP_PKG ;;
+        pacman)  pacman -S --noconfirm $OSCAP_PKG ;;
+    esac
+
+    # Install SSG packages from distro repo (best-effort)
+    if [[ -n "$SSG_PKG" ]]; then
+        log_info "Installing SCAP Security Guide (${SSG_PKG})..."
+        case "$PKG_MANAGER" in
+            apt-get) apt-get install -y $SSG_PKG 2>/dev/null \
+                || log_warn "Some SSG packages not in distro repo — will try GitHub." ;;
+            dnf)    dnf install -y $SSG_PKG ;;
+            zypper) zypper install -y $SSG_PKG ;;
+        esac
+    fi
+
+    # If XML content is still missing, download from GitHub
+    if [[ -n "$XML_PATH" && ! -f "$XML_PATH" ]]; then
+        log_warn "SCAP content not found: $XML_PATH"
+        install_ssg_from_github
+    else
+        log_info "SCAP content: $XML_PATH"
+    fi
+
+    local ver; ver=$(oscap --version 2>&1 | awk 'NR==1{print $NF}')
+    log_info "oscap ${ver} — ready"
+    echo ""
+    log_info "All dependencies installed."
+    echo -e "  Next: ${BOLD}sudo bash $(basename "$0") --apply${NC}"
+}
+
 # ── Scan ──────────────────────────────────────────────────────────────────────
 
 run_scan() {
@@ -601,9 +766,9 @@ run_scan() {
     print_scan_summary "$arf_file"
 }
 
-# ── Install ───────────────────────────────────────────────────────────────────
+# ── Apply ─────────────────────────────────────────────────────────────────────
 
-run_install() {
+run_apply() {
     if [[ "$DRY_RUN" == true ]]; then
         log_section "Dry Run — Hardening Preview"
         log_warn "No changes will be made to the system."
@@ -799,7 +964,7 @@ run_uninstall() {
 run_scan_arch()      { log_warn "Arch: full SCAP not available (no SSG)."; arch_basic_check; }
 run_uninstall_arch() { run_uninstall; }
 
-run_install_arch() {
+run_apply_arch() {
     if [[ "$DRY_RUN" == true ]]; then
         log_section "Dry Run — Arch Basic Hardening Preview"
         log_warn "Would apply: sysctl kernel params, sshd_config, core dump limits."
@@ -896,6 +1061,12 @@ main() {
     check_root "$@"
     detect_distro
     download_conf
+
+    if [[ "$MODE" == "install" ]]; then
+        run_install_deps
+        return
+    fi
+
     check_pyyaml
     parse_conf
 
@@ -906,10 +1077,10 @@ main() {
 
     case "$MODE" in
         scan)           run_scan ;;
-        install)        run_install ;;
+        apply)          run_apply ;;
         uninstall)      run_uninstall ;;
         scan_arch)      run_scan_arch ;;
-        install_arch)   run_install_arch ;;
+        apply_arch)     run_apply_arch ;;
         uninstall_arch) run_uninstall_arch ;;
     esac
 }
