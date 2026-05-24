@@ -4,7 +4,6 @@ set -euo pipefail
 
 readonly SCRIPT_VERSION="1.1.0"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly GITHUB_RAW="https://raw.githubusercontent.com/murat-akpinar/hardenix/main/profiles"
 readonly BACKUP_BASE="/var/lib/linuxharden"
 readonly REPORT_DIR="$(pwd)/reports"
 readonly TMP_DIR="/tmp/linuxharden_$$"
@@ -138,7 +137,7 @@ detect_distro() {
     log_info "Environment: ${ENV_PROFILE}"
 }
 
-# ── .yml Download ─────────────────────────────────────────────────────────────
+# ── Profile Resolution ────────────────────────────────────────────────────────
 
 download_conf() {
     if [[ -n "$LOCAL_CONF" ]]; then
@@ -148,9 +147,6 @@ download_conf() {
         return
     fi
 
-    mkdir -p "$TMP_DIR"
-    CONF_FILE="$TMP_DIR/profile.yml"
-
     local candidates=(
         "${DISTRO_ID}-${DISTRO_VERSION}.yml"
         "${DISTRO_ID}-${DISTRO_VERSION_MAJOR}.yml"
@@ -158,31 +154,17 @@ download_conf() {
 
     for conf_name in "${candidates[@]}"; do
         local local_path="${SCRIPT_DIR}/profiles/${conf_name}"
-
         if [[ -f "$local_path" ]]; then
             CONF_FILE="$local_path"
-            log_info "Profile loaded (local): $conf_name"
+            log_info "Profile loaded: $conf_name"
             return
         fi
-
-        local url="${GITHUB_RAW}/${conf_name}"
-        log_info "Fetching: $conf_name"
-
-        if wget -q --timeout=10 -O "$CONF_FILE" "$url" 2>/dev/null; then
-            if grep -q '^meta:' "$CONF_FILE" 2>/dev/null; then
-                log_info "Profile loaded (remote): $conf_name"
-                return
-            fi
-        fi
-
-        log_warn "Not found: $conf_name"
-        rm -f "$CONF_FILE"
     done
 
     log_error "No compatible profile found for: ${DISTRO_PRETTY}"
     echo ""
-    echo "  Supported profiles: https://github.com/murat-akpinar/hardenix/tree/main/profiles"
-    echo "  Use a local .yml with: --conf /path/to/your.yml"
+    echo "  Available profiles: ${SCRIPT_DIR}/profiles/"
+    echo "  Use a custom profile with: --conf /path/to/your.yml"
     exit 1
 }
 
