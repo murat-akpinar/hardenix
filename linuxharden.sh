@@ -885,26 +885,73 @@ PYEOF
     log_info "Baseline scan (before)..."
     local pre_arf="${backup_dir}/pre_hardening.arf"
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "$pre_arf") 2>/dev/null || true
+    oscap xccdf eval $(oscap_eval_args "$pre_arf") >/dev/null 2>&1 || true
     local pre_score; pre_score=$(get_score "$pre_arf")
+    log_info "Baseline score: ${pre_score}%"
 
     # Apply fixes
     echo ""
     log_info "Applying fixes — this may take several minutes..."
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "${backup_dir}/remediation.arf" "true") 2>&1 \
-        | grep -E '^(Fixing|Rule|Title|Result)' \
-        || true
+    oscap xccdf eval $(oscap_eval_args "${backup_dir}/remediation.arf" "true") >/dev/null 2>&1 || true
+    log_info "Fixes applied."
 
     # Verification scan after remediation
     echo ""
     log_info "Verification scan (after)..."
     local post_arf="${backup_dir}/post_hardening.arf"
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "$post_arf") 2>/dev/null || true
+    oscap xccdf eval $(oscap_eval_args "$post_arf") >/dev/null 2>&1 || true
     local post_score; post_score=$(get_score "$post_arf")
 
+    echo ""
     print_improvement "$pre_score" "$post_score"
+
+    if [[ -f "$post_arf" ]]; then
+        echo ""
+        print_scan_summary "$post_arf"
+        echo ""
+        python3 - "$post_arf" <<'PYEOF'
+import sys
+import xml.etree.ElementTree as ET
+
+NS = 'http://checklists.nist.gov/xccdf/1.2'
+tree = ET.parse(sys.argv[1]).getroot()
+
+rules = {}
+for rule in tree.iter(f'{{{NS}}}Rule'):
+    rules[rule.get('id', '')] = rule.get('severity', 'unknown')
+
+SEV_COLOR = {
+    'high':    '\033[0;31m',
+    'medium':  '\033[1;33m',
+    'low':     '\033[0;34m',
+    'unknown': '\033[0;37m',
+}
+NC   = '\033[0m'
+BOLD = '\033[1m'
+
+counts = {'high': 0, 'medium': 0, 'low': 0, 'unknown': 0}
+for rr in tree.iter(f'{{{NS}}}rule-result'):
+    r = rr.find(f'{{{NS}}}result')
+    if r is not None and r.text and r.text.strip() == 'fail':
+        sev = rules.get(rr.get('idref', ''), 'unknown')
+        counts[sev] = counts.get(sev, 0) + 1
+
+total = sum(counts.values())
+if total == 0:
+    print(f"  {BOLD}All rules passed!{NC}")
+    sys.exit(0)
+
+parts = []
+for s in ['high', 'medium', 'low', 'unknown']:
+    if counts[s]:
+        parts.append(f"{SEV_COLOR[s]}{counts[s]} {s}{NC}")
+
+print(f"  Remaining issues: {BOLD}{total} rules{NC}  ({'  ·  '.join(parts)})")
+print(f"  Run {BOLD}--dry-run{NC} to see the full list.")
+PYEOF
+    fi
 
     run_hook "$HOOK_POST" "post_hardening"
 
