@@ -1887,7 +1887,12 @@ main() {
     # CVE scan needs only oscap + the OVAL feed — skip the XCCDF/profile prep.
     if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" \
           && "$MODE" != "scan_cve" && "$MODE" != "fix_cve" ]]; then
-        detect_active_services
+        # Service protection only matters for --apply (it stops hardening from
+        # removing/disabling a running service). --scan is read-only, so don't
+        # prompt there — just report the real compliance state.
+        if [[ "$MODE" == "apply" || "$MODE" == "apply_arch" ]]; then
+            detect_active_services
+        fi
         check_dependencies
         validate_profile
         setup_tailoring
