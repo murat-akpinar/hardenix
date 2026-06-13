@@ -12,7 +12,7 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
 
 # Runtime flags
-MODE="" REPORT_FORMAT="html" PROFILE_OVERRIDE="" LOCAL_CONF="" CONF_FILE=""
+MODE="" REPORT_FORMAT="html" LOCAL_CONF="" CONF_FILE=""
 DRY_RUN=false
 # ENV_PROFILE is the internal key into scap.profiles; it is driven solely by --level.
 # Default: level 2 (strict). --level 1 switches to the basic baseline.
@@ -84,7 +84,6 @@ usage() {
     echo "  --dry-run           Preview what would change without applying (implies --apply)"
     echo "  --level <1|2>       Hardening level: 1 = CIS Level 1 (basic), 2 = CIS Level 2 (strict, default)"
     echo "  --format <type>     Report format: html | json | both  (default: html)"
-    echo "  --profile <id>      Override SCAP profile ID"
     echo "  --conf <file>       Use a local .yml instead of downloading"
     echo "  --help              Show this help"
     echo ""
@@ -119,7 +118,6 @@ parse_args() {
             --dry-run)   DRY_RUN=true ;;
             --level)     shift; SEC_LEVEL="${1:-}" ;;
             --format)    shift; REPORT_FORMAT="${1:-html}" ;;
-            --profile)   shift; PROFILE_OVERRIDE="${1:-}" ;;
             --conf)      shift; LOCAL_CONF="${1:-}" ;;
             --help|-h)   usage ;;
             *) log_error "Unknown option: $1"; echo ""; usage ;;
@@ -277,8 +275,6 @@ PYEOF
     fi
     eval "$output"
 
-    if [[ -n "$PROFILE_OVERRIDE" ]]; then PROFILE_ID="$PROFILE_OVERRIDE"; fi
-
     if [[ -z "$PKG_MANAGER" ]]; then log_error "Invalid .yml: missing packages.manager"; exit 1; fi
 
     if [[ "$ARCH_FALLBACK" == "true" ]]; then
@@ -418,7 +414,7 @@ detect_active_services() {
 
 # ── Profile Validation ────────────────────────────────────────────────────────
 
-# Datastream içinde PROFILE_ID gerçekten var mı? Geçersiz bir --profile verilirse
+# Datastream içinde PROFILE_ID gerçekten var mı? yml'deki profil id'si yanlışsa
 # oscap boş sonuç üretir ve script yanıltıcı bir %0.0 raporlar — erkenden yakala.
 validate_profile() {
     [[ ! -f "$XML_PATH" ]] && return 0
