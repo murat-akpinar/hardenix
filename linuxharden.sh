@@ -14,6 +14,8 @@ BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
 # Runtime flags
 MODE="" REPORT_FORMAT="html" LOCAL_CONF="" CONF_FILE=""
 DRY_RUN=false
+ASSUME_YES=false        # --yes / --non-interactive: skip confirmation prompts
+MIN_SCORE=""            # --min-score N: exit non-zero if scan score < N
 # ENV_PROFILE is the internal key into scap.profiles; it is driven solely by --level.
 # Default: level 2 (strict). --level 1 switches to the basic baseline.
 ENV_PROFILE="production"
@@ -86,6 +88,8 @@ usage() {
     echo "  --dry-run           Preview what would change without applying (implies --apply)"
     echo "  --level <1|2>       Hardening level: 1 = CIS Level 1 (basic), 2 = CIS Level 2 (strict, default)"
     echo "  --format <type>     Report format: html | json | both  (default: html)"
+    echo "  --yes               Skip confirmation prompts (non-interactive / CI)"
+    echo "  --min-score <N>     Exit non-zero if --scan score is below N (CI gate)"
     echo "  --conf <file>       Use a local .yml instead of downloading"
     echo "  --help              Show this help"
     echo ""
@@ -105,6 +109,19 @@ usage() {
     exit 0
 }
 
+# Prompt for confirmation unless --yes was given. Returns 0 to proceed.
+# Usage: confirm "Question text" || { log_warn "Aborted."; exit 0; }
+confirm() {
+    local prompt="$1"
+    if [[ "$ASSUME_YES" == true ]]; then
+        log_info "${prompt} [--yes]"
+        return 0
+    fi
+    echo -n "  ${prompt} [y/N] "
+    local answer; read -r answer
+    [[ "${answer,,}" == "y" ]]
+}
+
 # ── Argument Parsing ──────────────────────────────────────────────────────────
 
 parse_args() {
@@ -118,6 +135,8 @@ parse_args() {
             --apply)     MODE="apply" ;;
             --unapply)   MODE="unapply" ;;
             --dry-run)   DRY_RUN=true ;;
+            --yes|--non-interactive) ASSUME_YES=true ;;
+            --min-score) shift; MIN_SCORE="${1:-}" ;;
             --level)     shift; SEC_LEVEL="${1:-}" ;;
             --format)    shift; REPORT_FORMAT="${1:-html}" ;;
             --conf)      shift; LOCAL_CONF="${1:-}" ;;
@@ -134,6 +153,10 @@ parse_args() {
         html|json|both) ;;
         *) log_error "Invalid --format: $REPORT_FORMAT (use: html | json | both)"; exit 1 ;;
     esac
+
+    if [[ -n "$MIN_SCORE" && ! "$MIN_SCORE" =~ ^[0-9]+$ ]]; then
+        log_error "Invalid --min-score: $MIN_SCORE (use an integer 0-100)"; exit 1
+    fi
 
     # --level picks the strict vs. basic baseline and maps onto the scap.profiles keys.
     case "$SEC_LEVEL" in
@@ -411,7 +434,7 @@ detect_active_services() {
     echo ""
 
     local add_exclusions=true
-    if [[ -t 0 ]]; then
+    if [[ -t 0 && "$ASSUME_YES" != true ]]; then
         echo -e "  CIS kuralları bu servisleri kaldırabilir veya devre dışı bırakabilir."
         printf "  İlgili kurallar hariç tutulsun mu? [E/h]: "
         local answer
@@ -1044,6 +1067,17 @@ run_scan() {
     print_failing_rules "$arf_file"
     echo ""
     print_scan_summary "$arf_file"
+
+    # --min-score: fail (non-zero exit) when compliance is below the threshold.
+    if [[ -n "$MIN_SCORE" ]]; then
+        local score; score=$(get_score "$arf_file")
+        # integer compare (drop any decimals)
+        if (( ${score%.*} < MIN_SCORE )); then
+            log_error "Score ${score}% is below --min-score ${MIN_SCORE}%."
+            exit 2
+        fi
+        log_info "Score ${score}% meets --min-score ${MIN_SCORE}%."
+    fi
 }
 
 # ── Apply ─────────────────────────────────────────────────────────────────────
@@ -1084,9 +1118,7 @@ run_apply() {
     log_section "Applying Hardening"
     echo -e "  ${YELLOW}${BOLD}WARNING:${NC} System configuration will be modified."
     echo -e "  Backup → ${BOLD}${BACKUP_BASE}/${NC}"
-    echo -n "  Continue? [y/N] "
-    read -r confirm
-    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
+    confirm "Continue?" || { log_warn "Aborted."; exit 0; }
 
     run_hook "$HOOK_PRE" "pre_hardening"
 
@@ -1266,9 +1298,7 @@ run_unapply() {
 
     local ts; ts=$(awk -F'=' '/^timestamp/{print $2}' "${backup_dir}/manifest.conf")
     log_info "Restoring from: $ts"
-    echo -n "  Continue? [y/N] "
-    read -r confirm
-    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
+    confirm "Continue?" || { log_warn "Aborted."; exit 0; }
 
     revert_hardening "$backup_dir"
 
@@ -1284,9 +1314,7 @@ run_uninstall() {
     echo -e "  OpenSCAP and SCAP content packages will be removed."
     echo -e "  You will no longer be able to run ${BOLD}--scan${NC} or ${BOLD}--apply${NC}."
     echo ""
-    echo -n "  Continue? [y/N] "
-    read -r confirm
-    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
+    confirm "Continue?" || { log_warn "Aborted."; exit 0; }
 
     # Step 1: revert hardening settings (if a backup exists).
     local backup_dir
