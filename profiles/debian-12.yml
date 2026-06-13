@@ -11,10 +11,9 @@ packages:
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml
-  # NOTE: --scan-cve has no feed for Debian — www.debian.org/security/oval
-  # blocks automated downloads (403) and there is no stable mirror. Compliance
-  # (--scan/--apply) works; CVE scanning is unavailable until a feed is set here.
-  # oval_url: <reachable Debian OVAL feed>
+  # Debian Security OVAL feed (bookworm) for --scan-cve — note the .xml.bz2
+  # filename (the bare .xml path returns 403).
+  oval_url: https://www.debian.org/security/oval/oval-definitions-bookworm.xml.bz2
   # SSG, Debian için CIS profili yayınlamıyor; en sıkı seçenek ANSSI BP28'dir.
   profiles:
     production:  xccdf_org.ssgproject.content_profile_anssi_bp28_enhanced  # --level 2
