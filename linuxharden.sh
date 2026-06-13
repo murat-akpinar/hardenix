@@ -1108,10 +1108,24 @@ download_oval_feed() {
         log_error "Neither curl nor wget available to fetch the OVAL feed."; return 1
     fi
 
+    # Decompress via python3 (guaranteed dependency) — no bzip2/gzip binaries needed.
     case "$url" in
-        *.bz2) bunzip2 -cf "$tmp" > "$out" 2>/dev/null || { log_error "bunzip2 failed (install bzip2)"; return 1; } ; rm -f "$tmp" ;;
-        *.gz)  gunzip  -cf "$tmp" > "$out" 2>/dev/null || { log_error "gunzip failed"; return 1; } ; rm -f "$tmp" ;;
-        *)     mv "$tmp" "$out" ;;
+        *.bz2|*.gz)
+            local mod="bz2"; [[ "$url" == *.gz ]] && mod="gzip"
+            if ! python3 - "$tmp" "$out" "$mod" <<'PYEOF'
+import sys, bz2, gzip
+src, dst, mod = sys.argv[1], sys.argv[2], sys.argv[3]
+op = bz2.open if mod == "bz2" else gzip.open
+with op(src, "rb") as fi, open(dst, "wb") as fo:
+    while (chunk := fi.read(1 << 20)):
+        fo.write(chunk)
+PYEOF
+            then
+                log_error "Failed to decompress feed (corrupt download?)"; return 1
+            fi
+            rm -f "$tmp"
+            ;;
+        *) mv "$tmp" "$out" ;;
     esac
     log_info "Feed ready: $out"
 }
