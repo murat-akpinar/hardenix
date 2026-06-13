@@ -36,6 +36,12 @@ log_error()   { echo -e "${RED}[✗]${NC} $1" >&2; }
 # Spinner: _spin <pid> <message> — shows animated progress while pid is running
 _spin() {
     local pid=$1 msg=$2
+    # Non-interactive (pipe, CI, log file): print message once, no animation.
+    if [[ ! -t 1 ]]; then
+        printf "  %s\n" "$msg"
+        wait "$pid" 2>/dev/null
+        return
+    fi
     local frames=('|' '/' '-' '\') i=0
     while kill -0 "$pid" 2>/dev/null; do
         printf "\r  ${CYAN}[%s]${NC}  %s" "${frames[i % 4]}" "$msg"
@@ -407,6 +413,26 @@ detect_active_services() {
         log_info "NFS/SMB kuralları hariç tutuldu (${#rules_to_add[@]} kural)."
     else
         log_warn "Servis koruma atlandı — ilgili kurallar uygulanacak."
+    fi
+}
+
+# ── Profile Validation ────────────────────────────────────────────────────────
+
+# Datastream içinde PROFILE_ID gerçekten var mı? Geçersiz bir --profile verilirse
+# oscap boş sonuç üretir ve script yanıltıcı bir %0.0 raporlar — erkenden yakala.
+validate_profile() {
+    [[ ! -f "$XML_PATH" ]] && return 0
+
+    local profiles
+    profiles=$(oscap info --profiles "$XML_PATH" 2>/dev/null | cut -d: -f1)
+    [[ -z "$profiles" ]] && return 0  # oscap info desteklemiyorsa atla
+
+    if ! grep -qxF "$PROFILE_ID" <<<"$profiles"; then
+        log_error "Profile not found in datastream: $PROFILE_ID"
+        echo ""
+        echo "  Available profiles:"
+        echo "$profiles" | sed 's/^/    • /'
+        exit 1
     fi
 }
 
@@ -1290,6 +1316,7 @@ main() {
     if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" ]]; then
         detect_active_services
         check_dependencies
+        validate_profile
         setup_tailoring
     fi
 
