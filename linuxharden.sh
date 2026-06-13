@@ -37,10 +37,12 @@ log_error()   { echo -e "${RED}[✗]${NC} $1" >&2; }
 _spin() {
     local pid=$1 msg=$2
     # Non-interactive (pipe, CI, log file): print message once, no animation.
+    # NOTE: must return 0 — oscap exits 2 when rules fail, and under
+    # `set -e` a non-zero return from this bare call would abort the script.
     if [[ ! -t 1 ]]; then
         printf "  %s\n" "$msg"
-        wait "$pid" 2>/dev/null
-        return
+        wait "$pid" 2>/dev/null || true
+        return 0
     fi
     local frames=('|' '/' '-' '\') i=0
     while kill -0 "$pid" 2>/dev/null; do
