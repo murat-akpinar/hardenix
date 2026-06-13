@@ -439,6 +439,7 @@ setup_tailoring() {
 
     python3 - "$XML_PATH" "$PROFILE_ID" "$EXCLUSION_RULES" "$tfile" "$tailored_id" <<'PYEOF' && {
 import sys
+from datetime import datetime, timezone
 
 xml_path, profile_id, excl_str, out_file, new_id = sys.argv[1:]
 excluded = [r for r in excl_str.split() if r]
@@ -450,12 +451,14 @@ selects = '\n    '.join(
     f'<xccdf:select idref="{r}" selected="false"/>' for r in excluded
 )
 
+now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+
 xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <xccdf:Tailoring
     xmlns:xccdf="http://checklists.nist.gov/xccdf/1.2"
     id="xccdf_linuxharden.custom_tailoring_1">
-  <xccdf:version>1</xccdf:version>
   <xccdf:benchmark href="{xml_path}"/>
+  <xccdf:version time="{now}">1</xccdf:version>
   <xccdf:Profile id="{new_id}" extends="{profile_id}">
     <xccdf:title>linuxharden Custom Profile</xccdf:title>
     <xccdf:description>Auto-generated tailoring — excluded rules from .yml</xccdf:description>
