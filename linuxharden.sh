@@ -1143,11 +1143,38 @@ revert_hardening() {
     local backup_dir="$1"
     local rollback_hook; rollback_hook=$(awk -F'=' '/^hook_rollback/{print $2}' "${backup_dir}/manifest.conf")
 
-    # Restore config files
+    # Restore config files to their EXACT backed-up state. Plain `tar x` only
+    # overwrites/adds files, so anything the hardening *created* in a backed-up
+    # directory (e.g. /etc/modprobe.d/cramfs.conf, new /etc/sysctl.d drop-ins)
+    # would survive and keep the system hardened. So we extract to a staging
+    # dir and, per backed-up path, delete files that are no longer in the backup
+    # before copying the originals back.
     if [[ -f "${backup_dir}/configs.tar.gz" ]]; then
-        tar xzf "${backup_dir}/configs.tar.gz" -C / 2>/dev/null \
-            && log_info "Config files restored" \
-            || log_warn "Some files could not be restored"
+        local tmp; tmp=$(mktemp -d)
+        if tar xzf "${backup_dir}/configs.tar.gz" -C "$tmp" 2>/dev/null; then
+            local path rel src
+            for path in $BACKUP_DIRS; do
+                rel="${path#/}"
+                src="$tmp/$rel"
+                [[ -e "$src" ]] || continue          # not in this backup → skip
+                if [[ -d "$src" ]]; then
+                    # Remove files added by hardening (present now, absent in backup).
+                    if [[ -d "$path" ]]; then
+                        while IFS= read -r -d '' f; do
+                            [[ -e "$src/${f#"$path"/}" ]] || rm -f "$f"
+                        done < <(find "$path" -type f -print0)
+                    fi
+                    mkdir -p "$path"
+                    cp -a "$src/." "$path/" 2>/dev/null || true
+                else
+                    cp -a "$src" "$path" 2>/dev/null || true
+                fi
+            done
+            log_info "Config files restored"
+        else
+            log_warn "Could not extract config archive"
+        fi
+        rm -rf "$tmp"
     else
         log_warn "No config archive in backup"
     fi
@@ -1256,23 +1283,30 @@ run_uninstall() {
     echo ""
     log_info "Removing OpenSCAP packages..."
 
+    # Note: stderr is intentionally NOT suppressed — a silent `|| true` here
+    # once masked an apt-lock failure and reported a removal that never happened.
+    local rc=0
     # shellcheck disable=SC2086
     case "$PKG_MANAGER" in
         apt-get)
-            apt-get remove -y $OSCAP_PKG $SSG_PKG 2>/dev/null || true
-            apt-get autoremove -y 2>/dev/null || true
+            apt-get remove -y $OSCAP_PKG $SSG_PKG || rc=$?
+            apt-get autoremove -y || true
             ;;
         dnf)
-            dnf remove -y $OSCAP_PKG $SSG_PKG 2>/dev/null || true
+            dnf remove -y $OSCAP_PKG $SSG_PKG || rc=$?
             ;;
         zypper)
-            zypper remove -y $OSCAP_PKG $SSG_PKG 2>/dev/null || true
+            zypper remove -y $OSCAP_PKG $SSG_PKG || rc=$?
             ;;
         pacman)
-            pacman -Rns --noconfirm openscap 2>/dev/null || true
+            pacman -Rns --noconfirm openscap || rc=$?
             ;;
     esac
 
+    if [[ $rc -ne 0 ]]; then
+        log_error "Package removal failed (exit $rc) — OpenSCAP may still be installed."
+        exit "$rc"
+    fi
     log_info "OpenSCAP packages removed."
     log_warn "A reboot is strongly recommended."
 }
