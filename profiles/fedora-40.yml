@@ -11,6 +11,7 @@ packages:
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-fedora-ds.xml
+  # SSG, Fedora için CIS profili yayınlamıyor; OSPP en kapsamlı profildir.
   profiles:
     production:  xccdf_org.ssgproject.content_profile_ospp
     staging:     xccdf_org.ssgproject.content_profile_ospp
@@ -32,10 +33,17 @@ backup:
     - /etc/selinux
 
 exclusions:
-  rules:    []
+  rules:
+    # NFS sunucusu çalışıyorsa aşağıdaki satırları uncomment edin:
+    # - xccdf_org.ssgproject.content_rule_package_autofs_removed
+    # - xccdf_org.ssgproject.content_rule_service_autofs_disabled
+    # - xccdf_org.ssgproject.content_rule_package_nfs-utils_removed
+    # - xccdf_org.ssgproject.content_rule_package_rpcbind_removed
+    # - xccdf_org.ssgproject.content_rule_service_rpcbind_disabled
+    # - xccdf_org.ssgproject.content_rule_service_nfs_disabled
+    # - xccdf_org.ssgproject.content_rule_service_smb_disabled
   services: []
   paths:    []
-  users:    []
 
 hooks:
   pre_hardening:  ""

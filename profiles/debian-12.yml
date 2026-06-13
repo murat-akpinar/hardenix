@@ -11,6 +11,7 @@ packages:
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml
+  # SSG, Debian için CIS profili yayınlamıyor; en sıkı seçenek ANSSI BP28'dir.
   profiles:
     production:  xccdf_org.ssgproject.content_profile_anssi_bp28_enhanced
     staging:     xccdf_org.ssgproject.content_profile_anssi_bp28_enhanced
@@ -31,10 +32,20 @@ backup:
     - /etc/profile.d
 
 exclusions:
-  rules:    []
+  rules:
+    # NOT: Debian ANSSI profili kullanır; CIS firewall kural ID'leri burada
+    # geçerli değildir. Firewall hardening SSH erişimini kesebilir —
+    # uyguladıktan sonra bağlantınızı mutlaka kontrol edin.
+    # NFS/SMB çalışıyorsa script çalışırken otomatik sorar; manuel için aşağıyı açın:
+    # - xccdf_org.ssgproject.content_rule_package_autofs_removed
+    # - xccdf_org.ssgproject.content_rule_service_autofs_disabled
+    # - xccdf_org.ssgproject.content_rule_package_nfs-kernel-server_removed
+    # - xccdf_org.ssgproject.content_rule_package_rpcbind_removed
+    # - xccdf_org.ssgproject.content_rule_service_rpcbind_disabled
+    # - xccdf_org.ssgproject.content_rule_service_nfs_disabled
+    # - xccdf_org.ssgproject.content_rule_service_smb_disabled
   services: []
   paths:    []
-  users:    []
 
 hooks:
   pre_hardening:  ""

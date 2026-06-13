@@ -22,6 +22,7 @@ OpenSCAP tabanlı Linux sıkılaştırma aracı. Distro'ya göre YAML profili in
 - **`--unapply`** — Son yedekten hardening değişikliklerini geri alır
 - **`--scan`** — CIS/ANSSI/STIG profiliyle uyumluluk taraması, HTML/JSON rapor
 - **`--dry-run`** — Neyin değişeceğini severity gruplarına göre gösterir, sisteme dokunmaz
+- **`--level`** — Sıkılaştırma seviyesini doğrudan seçer: `1` = CIS Level 1 (temel), `2` = CIS Level 2 (sıkı)
 - **`--env`** — `production` / `staging` / `development` profili seçer
 - **Exclusions** — Belirli kuralları, servisleri veya path'leri atlama
 - **Hooks** — Sıkılaştırma öncesi/sonrası ve rollback için özel script çalıştırma
@@ -31,17 +32,41 @@ OpenSCAP tabanlı Linux sıkılaştırma aracı. Distro'ya göre YAML profili in
 
 ## Desteklenen Dağıtımlar
 
-| Dağıtım | Profil (production) | Profil (development) | Motor |
-|---------|---------------------|----------------------|-------|
+`--level 2` (varsayılan) sıkı profili, `--level 1` temel profili seçer.
+
+| Dağıtım | Level 2 — sıkı (varsayılan) | Level 1 — temel (`--level 1`) | Motor |
+|---------|-----------------------------|-------------------------------|-------|
 | Ubuntu 22.04 | CIS Level 2 Server | CIS Level 1 Server | SSG |
 | Ubuntu 24.04 | CIS Level 2 Server | CIS Level 1 Server | SSG |
 | Debian 12 | ANSSI BP-028 Enhanced | Standard | SSG |
 | RHEL 9 | CIS Level 2 Server | CIS Level 1 Server | SSG |
-| Rocky Linux 9 | CIS Level 1 Server | Standard | SSG |
-| AlmaLinux 9 | CIS Level 1 Server | Standard | SSG |
+| Rocky Linux 9 | CIS Level 2 Server | CIS Level 1 Server | SSG |
+| AlmaLinux 9 | CIS Level 2 Server | CIS Level 1 Server | SSG |
 | Fedora 40 | OSPP | Standard | SSG |
 | openSUSE Leap 15 | CIS Level 2 Server | CIS Level 1 Server | SSG |
 | Arch Linux | sysctl + SSH hardening | — | Bash fallback |
+
+> Debian ve Fedora için SSG bir CIS profili yayınlamıyor; ANSSI BP28 / OSPP kullanılır.
+> Burada `--level 2` "sıkı baseline", `--level 1` "hafif baseline" anlamına gelir.
+
+---
+
+## Sıkılaştırma Seviyeleri
+
+| | **Level 1** (`--level 1`) | **Level 2** (`--level 2`, varsayılan) |
+|---|---|---|
+| Amaç | Günlük kullanım için temel güvenlik | Yüksek güvenlik / regülasyon |
+| Etki | Pratik, bozma riski düşük | Bazı fonksiyonları kısıtlayabilir |
+| Örnek | Parola politikası, dosya izinleri | Zorunlu denetim (auditd), mount kısıtları, ek servis kaldırma |
+| Tipik kullanıcı | Çoğu sunucu | Bankacılık, kamu, hassas veri |
+
+```bash
+sudo ./linuxharden.sh --apply --level 1    # temel
+sudo ./linuxharden.sh --apply --level 2    # sıkı (varsayılan)
+```
+
+> `--level`, profil seçiminin kısa yoludur ve `--env`'e göre önceliklidir.
+> Seviye belirtmeden `--apply` çalıştırmak Level 2'yi (sıkı) varsayar.
 
 ---
 
@@ -74,11 +99,12 @@ sudo ./linuxharden.sh --install
 # 2. Neyin değişeceğini önce gör — sisteme dokunmaz
 sudo ./linuxharden.sh --dry-run
 
-# 3. Sıkılaştırma uygula (yedek alır → uygular → doğrular)
+# 3. Sıkılaştırma uygula (yedek alır → uygular → doğrular) — varsayılan Level 2 (sıkı)
 sudo ./linuxharden.sh --apply
 
-# Development ortamı için daha hafif profil
-sudo ./linuxharden.sh --apply --env development
+# Sıkılaştırma seviyesini doğrudan seç
+sudo ./linuxharden.sh --apply --level 1     # CIS Level 1 (temel)
+sudo ./linuxharden.sh --apply --level 2     # CIS Level 2 (sıkı)
 
 # Sıkılaştırmayı geri al (backup'tan config'leri restore eder)
 sudo ./linuxharden.sh --unapply
@@ -111,6 +137,7 @@ sudo ./linuxharden.sh --scan --conf ./profiles/ubuntu-22.04.yml
 | `--unapply` | Son yedekten hardening ayarlarını geri alır |
 | `--scan` | Compliance taraması, rapor üretir |
 | `--dry-run` | Başarısız kuralları severity gruplarına göre gösterir, sisteme dokunmaz (`--apply`'ı ima eder) |
+| `--level <1\|2>` | Sıkılaştırma seviyesi: `1` = CIS Level 1 (temel), `2` = CIS Level 2 (sıkı, varsayılan) |
 | `--env <profil>` | `production` \| `staging` \| `development` (varsayılan: production) |
 | `--format <tip>` | `html` \| `json` \| `both` (varsayılan: html) |
 | `--profile <id>` | SCAP profil ID override |
