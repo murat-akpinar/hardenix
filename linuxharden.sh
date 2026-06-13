@@ -1212,20 +1212,8 @@ sev_count = {}
 for _, (s, _t) in cve_map.items():
     sev_count[s] = sev_count.get(s, 0) + 1
 
-print(f"\n  {B}┌─ CVE Scan Summary {'─'*27}┐{NC}")
-print(f"  │  {'Vulnerable CVEs':<21} : {len(cve_map):<20}│")
-print(f"  │  {'Fixing advisories':<21} : {adv_count:<20}│")
-print(f"  {B}└{'─'*46}┘{NC}")
-parts = []
-for s in sorted(sev_count, key=rk):
-    n = sev_count[s]
-    if not n: continue
-    col = R if s in ('Critical','High') else (Y if s == 'Medium' else NC)
-    parts.append(f"{col}{n} {s or 'Unknown'}{NC}")
-if parts:
-    print("  " + "  ·  ".join(parts))
-
-# CVE list, worst severity first
+# CVE list first (worst severity first), then the summary box at the bottom —
+# same layout as --scan (findings on top, score box last).
 items = sorted(cve_map.items(), key=lambda kv: (rk(kv[1][0]), kv[0]))
 LIMIT = 40
 if items:
@@ -1236,6 +1224,20 @@ if items:
         print(f"    {col}{(s or 'Unknown'):<9}{NC} {cid:<18} {u.group() if u else ''}")
     if len(items) > LIMIT:
         print(f"    … (+{len(items) - LIMIT} more — full list in the HTML report)")
+
+parts = []
+for s in sorted(sev_count, key=rk):
+    n = sev_count[s]
+    if not n: continue
+    col = R if s in ('Critical','High') else (Y if s == 'Medium' else NC)
+    parts.append(f"{col}{n} {s or 'Unknown'}{NC}")
+print()
+if parts:
+    print("  " + "  ·  ".join(parts))
+print(f"  {B}┌─ CVE Scan Summary {'─'*27}┐{NC}")
+print(f"  │  {'Vulnerable CVEs':<21} : {len(cve_map):<20}│")
+print(f"  │  {'Fixing advisories':<21} : {adv_count:<20}│")
+print(f"  {B}└{'─'*46}┘{NC}")
 PYEOF
 }
 
@@ -1260,16 +1262,7 @@ for line in open(f, encoding='utf-8', errors='replace'):
         advs.add(ident)
 sev_count = {}
 for _, s in cve_map.items(): sev_count[s] = sev_count.get(s,0)+1
-print(f"\n  {B}┌─ CVE Scan Summary {'─'*27}┐{NC}")
-print(f"  │  {'Vulnerable CVEs':<21} : {len(cve_map):<20}│")
-print(f"  │  {'Fixing advisories':<21} : {len(advs):<20}│")
-print(f"  {B}└{'─'*46}┘{NC}")
-parts = []
-for s in sorted(sev_count, key=lambda x: rank.get(x,9)):
-    n = sev_count[s]
-    col = R if s in ('Critical','Important') else (Y if s == 'Moderate' else NC)
-    parts.append(f"{col}{n} {s or 'Unknown'}{NC}")
-if parts: print("  " + "  ·  ".join(parts))
+# CVE list first, then the summary box at the bottom — same layout as --scan.
 items = sorted(cve_map.items(), key=lambda kv: (rank.get(kv[1],9), kv[0]))
 LIMIT = 40
 if items:
@@ -1279,6 +1272,17 @@ if items:
         print(f"    {col}{(s or 'Unknown'):<10}{NC} {c}")
     if len(items) > LIMIT:
         print(f"    … (+{len(items)-LIMIT} more — see the report file)")
+parts = []
+for s in sorted(sev_count, key=lambda x: rank.get(x,9)):
+    n = sev_count[s]
+    col = R if s in ('Critical','Important') else (Y if s == 'Moderate' else NC)
+    parts.append(f"{col}{n} {s or 'Unknown'}{NC}")
+print()
+if parts: print("  " + "  ·  ".join(parts))
+print(f"  {B}┌─ CVE Scan Summary {'─'*27}┐{NC}")
+print(f"  │  {'Vulnerable CVEs':<21} : {len(cve_map):<20}│")
+print(f"  │  {'Fixing advisories':<21} : {len(advs):<20}│")
+print(f"  {B}└{'─'*46}┘{NC}")
 PYEOF
 }
 
