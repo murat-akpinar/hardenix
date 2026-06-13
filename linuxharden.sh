@@ -1233,13 +1233,73 @@ if items:
 PYEOF
 }
 
-run_scan_cve() {
-    log_section "CVE / Vulnerability Scan (OVAL)"
+# Parse `dnf updateinfo list cves --security` output into the CVE-centric summary.
+print_cve_summary_dnf() {
+    local f="$1"
+    command -v python3 &>/dev/null || { cat "$f"; return 0; }
+    python3 - "$f" <<'PYEOF'
+import sys, re
+f = sys.argv[1]
+R='\033[0;31m'; Y='\033[1;33m'; NC='\033[0m'; B='\033[1m'
+rank = {'Critical':0,'Important':1,'Moderate':2,'Low':3,'':4}
+cve_map = {}; advs = set()
+for line in open(f, encoding='utf-8', errors='replace'):
+    p = line.split()
+    if len(p) < 2: continue
+    ident, sev = p[0], p[1].split('/')[0]
+    if ident.startswith('CVE-'):
+        if ident not in cve_map or rank.get(sev,9) < rank.get(cve_map[ident],9):
+            cve_map[ident] = sev
+    elif re.match(r'(RLSA|RHSA|ALSA|ELSA)', ident):
+        advs.add(ident)
+sev_count = {}
+for _, s in cve_map.items(): sev_count[s] = sev_count.get(s,0)+1
+print(f"\n  {B}┌─ CVE Scan Summary {'─'*27}┐{NC}")
+print(f"  │  {'Vulnerable CVEs':<21} : {len(cve_map):<20}│")
+print(f"  │  {'Fixing advisories':<21} : {len(advs):<20}│")
+print(f"  {B}└{'─'*46}┘{NC}")
+parts = []
+for s in sorted(sev_count, key=lambda x: rank.get(x,9)):
+    n = sev_count[s]
+    col = R if s in ('Critical','Important') else (Y if s == 'Moderate' else NC)
+    parts.append(f"{col}{n} {s or 'Unknown'}{NC}")
+if parts: print("  " + "  ·  ".join(parts))
+items = sorted(cve_map.items(), key=lambda kv: (rank.get(kv[1],9), kv[0]))
+LIMIT = 40
+if items:
+    print(f"\n  {B}Vulnerable CVEs:{NC}")
+    for c, s in items[:LIMIT]:
+        col = R if s in ('Critical','Important') else (Y if s == 'Moderate' else NC)
+        print(f"    {col}{(s or 'Unknown'):<10}{NC} {c}")
+    if len(items) > LIMIT:
+        print(f"    … (+{len(items)-LIMIT} more — see the report file)")
+PYEOF
+}
 
-    if [[ "$ARCH_FALLBACK" == "true" ]]; then
-        log_error "CVE scan is not supported on this distro (no OVAL feed configured)."
-        exit 1
-    fi
+# RHEL family (dnf/yum): use native updateinfo errata. OVAL is inaccurate on
+# RHEL *rebuilds* (Rocky/Alma) because Red Hat's feed gates on redhat-release
+# and version strings differ — it massively over-reports.
+scan_cve_dnf() {
+    local pm="$PKG_MANAGER"; [[ "$pm" == "yum" ]] || pm="dnf"
+    mkdir -p "$REPORT_DIR"
+    local ts; ts=$(date +%Y%m%d_%H%M%S)
+    local report="${REPORT_DIR}/cve_${ts}.txt"
+
+    log_info "Source : ${pm} updateinfo (vendor errata)"
+    echo ""
+    local pid
+    "$pm" -q updateinfo list cves --security >"$report" 2>/dev/null &
+    pid=$!
+    _spin "$pid" "Querying security advisories..."
+    wait "$pid" 2>/dev/null || true
+
+    [[ -f "$report" ]] || { log_error "CVE scan produced no output."; exit 1; }
+    log_info "Report : $report"
+    print_cve_summary_dnf "$report"
+}
+
+# Debian/Ubuntu (and SUSE): evaluate the vendor OVAL feed with oscap.
+scan_cve_oval() {
     if [[ -z "$OVAL_URL" ]]; then
         log_error "No OVAL feed for this profile (set scap.oval_url in the .yml)."
         exit 1
@@ -1271,6 +1331,20 @@ run_scan_cve() {
     log_info "HTML report: $report"
 
     print_cve_summary "$results" "$feed"
+}
+
+run_scan_cve() {
+    log_section "CVE / Vulnerability Scan"
+
+    if [[ "$ARCH_FALLBACK" == "true" ]]; then
+        log_error "CVE scan is not supported on this distro."
+        exit 1
+    fi
+
+    case "$PKG_MANAGER" in
+        dnf|yum) scan_cve_dnf ;;     # RHEL family → native errata
+        *)       scan_cve_oval ;;    # apt-get / zypper → OVAL feed
+    esac
 }
 
 # ── Security Patching (--fix-cve) ───────────────────────────────────────────────
