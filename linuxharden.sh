@@ -1178,9 +1178,9 @@ for ev, el in ET.iterparse(feed_f, ('end',)):
     el.clear()
 
 total = len(rows)   # patch-class advisories only
-print(f"\n  {B}┌─ CVE Scan Summary {'─'*28}┐{NC}")
-print(f"  │  Vulnerable advisories : {total:<19}│")
-print(f"  │  Distinct CVEs         : {len(cves):<19}│")
+print(f"\n  {B}┌─ CVE Scan Summary {'─'*27}┐{NC}")
+print(f"  │  {'Vulnerable advisories':<21} : {total:<20}│")
+print(f"  │  {'Distinct CVEs':<21} : {len(cves):<20}│")
 print(f"  {B}└{'─'*46}┘{NC}")
 rank = {'Critical':0,'High':1,'Medium':2,'Low':3,'Negligible':4,'Untriaged':5}
 parts = []
