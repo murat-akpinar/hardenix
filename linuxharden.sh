@@ -1629,6 +1629,20 @@ revert_hardening() {
                 fi
             done
             log_info "Config files restored"
+
+            # CRITICAL on SELinux systems (RHEL/Rocky/Alma): a tar/cp restore does
+            # not carry SELinux contexts, so restored files come back mislabeled —
+            # which on an enforcing system can freeze boot ("Failed to initialize
+            # SELinux support"). Reset the contexts of the restored paths from the
+            # policy's file_contexts.
+            if command -v restorecon &>/dev/null \
+               && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
+                log_info "Restoring SELinux contexts..."
+                local rp
+                for rp in $BACKUP_DIRS; do
+                    [[ -e "$rp" ]] && restorecon -RF "$rp" 2>/dev/null || true
+                done
+            fi
         else
             log_warn "Could not extract config archive"
         fi

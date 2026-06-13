@@ -28,7 +28,7 @@ backup:
     - /etc/modprobe.d
     - /etc/cron.d
     - /etc/profile.d
-    - /etc/selinux
+    - /etc/selinux/config   # config only — never raw-restore the policy store
 
 exclusions:
   rules:
