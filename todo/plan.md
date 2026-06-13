@@ -35,6 +35,20 @@ en sonda topluca test etmek zorunda kalmayız.
 
 # FAZLAR
 
+## Durum (feature/security-phases)
+
+- ✅ **FAZ 0** — baseline (%65.2) + `TESTING.md`
+- ✅ **FAZ 1** — apache/nginx servis koruması (test edildi)
+- ✅ **FAZ 2** — genişletilmiş backup kapsamı; clean apply→unapply 70.4% → 67.0%
+  (config revert esasen tam; kalan ~2 kural unapply'ın kasıtlı tuttuğu kurulu
+  paketlerden — aide/pwquality)
+- ✅ **FAZ 4** — `--yes` / `--min-score` (test edildi)
+- Bulgu (mask): Boş sistemi hardenleyip **sonra** nginx/apache kurarsan servis
+  **maskeli gelmez** (active/enabled/loaded). SSG yalnızca paket apply anında
+  varsa mask yapar. → "önce hardenle, sonra kur" golden-image akışı güvenli.
+
+---
+
 ## FAZ 0 — Hazırlık & Test Altyapısı  `[temel]`
 
 Amaç: her fazı hızlı ve tekrarlanabilir doğrulayabilmek.
