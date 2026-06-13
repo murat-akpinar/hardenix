@@ -317,6 +317,31 @@ advisory referansı olarak gösterilir. Tam liste HTML raporda.
 
 ---
 
+## Test Sonuçları
+
+Gerçek makinelerde uçtan uca çalıştırmalar (scan → apply → unapply → CVE taraması):
+
+### Ubuntu 24.04.4 LTS
+- Kernel `6.8.0-generic` · oscap 1.3.9 · profil `cis_level2_server` / `cis_level1_server`
+- **`--scan` (baseline, Level 2):** %65.2 — 242 pass / 129 fail
+- **`--apply --level 1`:** %68.5 → **%93.7** (+25.2)
+- **`--unapply`:** config'i tam geri yükler + kaldırılan paketleri yeniden kurar
+- **`--scan-cve`** (Canonical USN OVAL): tam yamalı kutuda 0 CVE (`apt` ile uyumlu).
+  Tespit doğrulaması: `curl` eski sürüme düşürüldü → **8 advisory / 27 CVE** yakalandı;
+  **`--fix-cve`** yamaladı → tekrar 0.
+
+### Rocky Linux 9.8 (Blue Onyx)
+- Kernel `5.14.0-687.10.1.el9_8` · oscap 1.3.13 · profil `cis` / `cis_server_l1`
+- **`--scan` (baseline, Level 2):** %47.4 — 191 failing kural
+- **`--apply --level 1`:** %58.7 → **%98.1** (+39.4)
+- **`--scan-cve`** (native `dnf updateinfo` errata): **39 CVE / 7 advisory**
+  (34 Important · 5 Moderate) — RHEL klonlarında OVAL kullanılmaz (aşırı raporlar).
+
+> Sayılar makinenin ne kadar güncel olduğuna göre değişir; CVE sayıları tarama
+> anındaki bekleyen satıcı güvenlik advisory'lerini yansıtır.
+
+---
+
 ## Uyarılar
 
 > **Root yetkisi gereklidir.** Script `sudo` ile çalıştırılmalıdır.
