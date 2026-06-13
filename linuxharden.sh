@@ -454,6 +454,7 @@ xml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <xccdf:Tailoring
     xmlns:xccdf="http://checklists.nist.gov/xccdf/1.2"
     id="xccdf_linuxharden.custom_tailoring_1">
+  <xccdf:version>1</xccdf:version>
   <xccdf:benchmark href="{xml_path}"/>
   <xccdf:Profile id="{new_id}" extends="{profile_id}">
     <xccdf:title>linuxharden Custom Profile</xccdf:title>
