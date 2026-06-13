@@ -417,7 +417,7 @@ detect_active_services() {
 
     if systemctl is-active --quiet nfs-server 2>/dev/null || \
        systemctl is-active --quiet nfs-kernel-server 2>/dev/null; then
-        detected+=("NFS sunucusu")
+        detected+=("NFS server")
         rules_to_add+=(
             "xccdf_org.ssgproject.content_rule_service_nfs_disabled"
             "$nfs_pkg_rule"
@@ -436,7 +436,7 @@ detect_active_services() {
 
     if systemctl is-active --quiet smb 2>/dev/null || \
        systemctl is-active --quiet smbd 2>/dev/null; then
-        detected+=("Samba (SMB)")
+        detected+=("Samba (SMB) server")
         rules_to_add+=("xccdf_org.ssgproject.content_rule_service_smb_disabled")
     fi
 
@@ -445,7 +445,7 @@ detect_active_services() {
     # live web server, so protect it when it is actually running.
     if systemctl is-active --quiet apache2 2>/dev/null || \
        systemctl is-active --quiet httpd 2>/dev/null; then
-        detected+=("Apache (web sunucusu)")
+        detected+=("Apache (web server)")
         rules_to_add+=(
             "xccdf_org.ssgproject.content_rule_service_httpd_disabled"
             "xccdf_org.ssgproject.content_rule_package_httpd_removed"
@@ -453,7 +453,7 @@ detect_active_services() {
     fi
 
     if systemctl is-active --quiet nginx 2>/dev/null; then
-        detected+=("nginx (web sunucusu)")
+        detected+=("nginx (web server)")
         rules_to_add+=(
             "xccdf_org.ssgproject.content_rule_service_nginx_disabled"
             "xccdf_org.ssgproject.content_rule_package_nginx_removed"
@@ -463,7 +463,7 @@ detect_active_services() {
     [[ ${#detected[@]} -eq 0 ]] && return
 
     echo ""
-    log_warn "Aktif servisler tespit edildi:"
+    log_warn "Active services detected:"
     for svc in "${detected[@]}"; do
         echo "    • $svc"
     done
@@ -471,15 +471,15 @@ detect_active_services() {
 
     local add_exclusions=true
     if [[ -t 0 && "$ASSUME_YES" != true ]]; then
-        echo -e "  CIS kuralları bu servisleri kaldırabilir veya devre dışı bırakabilir."
-        printf "  İlgili kurallar hariç tutulsun mu? [E/h]: "
+        echo -e "  CIS rules may remove or disable these services."
+        printf "  Exclude the related rules? [Y/n]: "
         local answer
         read -r answer
         case "${answer,,}" in
-            h|n|no|hayır) add_exclusions=false ;;
+            n|no) add_exclusions=false ;;
         esac
     else
-        log_warn "Etkileşimsiz mod — tespit edilen servis kuralları otomatik hariç tutuldu."
+        log_warn "Non-interactive mode — detected service rules auto-excluded."
     fi
 
     if [[ "$add_exclusions" == true ]]; then
@@ -487,9 +487,9 @@ detect_active_services() {
             [[ "$EXCLUSION_RULES" != *"$rule"* ]] && \
                 EXCLUSION_RULES="${EXCLUSION_RULES:+$EXCLUSION_RULES }$rule"
         done
-        log_info "Aktif servis kuralları hariç tutuldu (${#rules_to_add[@]} kural)."
+        log_info "Active-service rules excluded (${#rules_to_add[@]} rule(s))."
     else
-        log_warn "Servis koruma atlandı — ilgili kurallar uygulanacak."
+        log_warn "Service protection skipped — the related rules will be applied."
     fi
 }
 
@@ -521,15 +521,15 @@ setup_tailoring() {
 
     if [[ -z "$EXCLUSION_RULES" ]]; then return; fi
 
-    # Hariç tutulan rule ID'lerini datastream'e karşı doğrula — yazım hatası
-    # olursa kural sessizce yok sayılır, kullanıcıyı uyaralım.
+    # Validate excluded rule IDs against the datastream — a typo would be
+    # silently ignored, so warn the user.
     if [[ -f "$XML_PATH" ]]; then
         local unknown=()
         for rule in $EXCLUSION_RULES; do
             grep -q "id=\"${rule}\"" "$XML_PATH" 2>/dev/null || unknown+=("$rule")
         done
         if [[ ${#unknown[@]} -gt 0 ]]; then
-            log_warn "Datastream'de bulunamayan ${#unknown[@]} exclusion kuralı (yok sayılacak):"
+            log_warn "${#unknown[@]} exclusion rule(s) not found in the datastream (will be ignored):"
             for r in "${unknown[@]}"; do
                 echo "    • $r"
             done
