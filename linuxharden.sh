@@ -1171,51 +1171,65 @@ for ev, el in ET.iterparse(results_f, ('end',)):
     if lname(el.tag) == 'definition':
         el.clear()
 
-# 2) walk the feed; for each vulnerable definition collect severity + CVEs
-order = ['Critical', 'High', 'Medium', 'Low', 'Negligible', 'Untriaged']
-sev_count = {s: 0 for s in order}
-cves = set()
-rows = []
+# 2) walk the feed; collect per-CVE severity + the advisory (USN) that fixes it.
+# Output is CVE-centric — that's the identifier everyone searches by; the USN is
+# shown only as the reference that ships the fix.
+rank = {'Critical':0,'High':1,'Medium':2,'Low':3,'Negligible':4,'Untriaged':5,'':6}
+def rk(s): return rank.get(s, 9)
+
+cve_map = {}     # CVE-id -> [severity, fixing USN title]
+adv_count = 0
 for ev, el in ET.iterparse(feed_f, ('end',)):
     if lname(el.tag) != 'definition':
         continue
-    did = el.get('id')
     # Only real vulnerability advisories — skip the 'inventory' (is-OS-installed) def.
-    if did in vuln and el.get('class') == 'patch':
-        sev, title = 'Untriaged', ''
+    if el.get('id') in vuln and el.get('class') == 'patch':
+        adv_count += 1
+        title, adv_sev, found = '', 'Untriaged', []
         for sub in el.iter():
             ln = lname(sub.tag)
-            if ln == 'severity' and sub.text: sev = sub.text.strip().title()
-            elif ln == 'title' and sub.text and not title: title = sub.text.strip()
+            if ln == 'title' and sub.text and not title: title = sub.text.strip()
+            elif ln == 'severity' and sub.text: adv_sev = sub.text.strip().title()
             elif ln == 'cve' and sub.text:
                 m = re.search(r'CVE-\d{4}-\d+', sub.text)
-                if m: cves.add(m.group())
-        if sev not in sev_count: sev_count[sev] = 0
-        sev_count[sev] += 1
-        rows.append((sev, title))
+                if m:
+                    sev = (sub.get('cvss_severity') or sub.get('priority') or '').title()
+                    found.append((m.group(), sev))
+        for cid, sev in found:
+            s = sev or adv_sev
+            # keep the most severe rating + first USN seen for each CVE
+            if cid not in cve_map or rk(s) < rk(cve_map[cid][0]):
+                cve_map[cid] = [s, title]
     el.clear()
 
-total = len(rows)   # patch-class advisories only
+sev_count = {}
+for _, (s, _t) in cve_map.items():
+    sev_count[s] = sev_count.get(s, 0) + 1
+
 print(f"\n  {B}┌─ CVE Scan Summary {'─'*27}┐{NC}")
-print(f"  │  {'Vulnerable advisories':<21} : {total:<20}│")
-print(f"  │  {'Distinct CVEs':<21} : {len(cves):<20}│")
+print(f"  │  {'Vulnerable CVEs':<21} : {len(cve_map):<20}│")
+print(f"  │  {'Fixing advisories':<21} : {adv_count:<20}│")
 print(f"  {B}└{'─'*46}┘{NC}")
-rank = {'Critical':0,'High':1,'Medium':2,'Low':3,'Negligible':4,'Untriaged':5}
 parts = []
-for s in sorted(sev_count, key=lambda x: rank.get(x, 9)):
+for s in sorted(sev_count, key=rk):
     n = sev_count[s]
     if not n: continue
-    col = R if s in ('Critical','High') else (Y if s=='Medium' else NC)
-    parts.append(f"{col}{n} {s}{NC}")
+    col = R if s in ('Critical','High') else (Y if s == 'Medium' else NC)
+    parts.append(f"{col}{n} {s or 'Unknown'}{NC}")
 if parts:
     print("  " + "  ·  ".join(parts))
-# show the most severe handful
-top = sorted(rows, key=lambda r: rank.get(r[0], 9))[:10]
-if top:
-    print(f"\n  {B}Top advisories:{NC}")
-    for sev, title in top:
-        col = R if sev in ('Critical','High') else (Y if sev=='Medium' else NC)
-        print(f"    {col}{sev:<9}{NC} {title[:60]}")
+
+# CVE list, worst severity first
+items = sorted(cve_map.items(), key=lambda kv: (rk(kv[1][0]), kv[0]))
+LIMIT = 40
+if items:
+    print(f"\n  {B}Vulnerable CVEs:{NC}")
+    for cid, (s, t) in items[:LIMIT]:
+        col = R if s in ('Critical','High') else (Y if s == 'Medium' else NC)
+        u = re.search(r'USN-[0-9-]+', t or '')
+        print(f"    {col}{(s or 'Unknown'):<9}{NC} {cid:<18} {u.group() if u else ''}")
+    if len(items) > LIMIT:
+        print(f"    … (+{len(items) - LIMIT} more — full list in the HTML report)")
 PYEOF
 }
 
