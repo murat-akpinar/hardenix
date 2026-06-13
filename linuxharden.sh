@@ -1265,7 +1265,7 @@ for line in open(f, encoding='utf-8', errors='replace'):
     if ident.startswith('CVE-'):
         if ident not in cve_map or rank.get(sev,9) < rank.get(cve_map[ident],9):
             cve_map[ident] = sev
-    elif re.match(r'(RLSA|RHSA|ALSA|ELSA)', ident):
+    elif re.match(r'(RLSA|RHSA|ALSA|ELSA|FEDORA)', ident):
         advs.add(ident)
 sev_count = {}
 for _, s in cve_map.items(): sev_count[s] = sev_count.get(s,0)+1
@@ -1318,7 +1318,8 @@ scan_cve_dnf() {
 # Debian/Ubuntu (and SUSE): evaluate the vendor OVAL feed with oscap.
 scan_cve_oval() {
     if [[ -z "$OVAL_URL" ]]; then
-        log_error "No OVAL feed for this profile (set scap.oval_url in the .yml)."
+        log_error "CVE scan unavailable: no OVAL feed configured for ${DISTRO_PRETTY}."
+        echo "  Set ${BOLD}scap.oval_url${NC} in the profile .yml to enable --scan-cve."
         exit 1
     fi
     if ! command -v oscap &>/dev/null; then

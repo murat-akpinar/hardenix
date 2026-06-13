@@ -11,6 +11,8 @@ packages:
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-sle15-ds.xml  # SSG has no separate Leap datastream; SLE 15 profile is used
+  # SUSE OVAL feed for --scan-cve. Pin to your Leap minor (15.5 / 15.6 / …).
+  oval_url: https://ftp.suse.com/pub/projects/security/oval/opensuse.leap.15.6.xml.gz
   profiles:
     production:  xccdf_org.ssgproject.content_profile_cis_server_l2  # --level 2
     development: xccdf_org.ssgproject.content_profile_cis_server_l1  # --level 1
