@@ -83,6 +83,7 @@ usage() {
     echo "  --uninstall         Revert hardening, then remove OpenSCAP + SCAP packages"
     echo "  --scan              Scan system compliance and generate report"
     echo "  --scan-cve          Scan installed packages for known CVEs (OVAL feed)"
+    echo "  --fix-cve           Install available security updates only"
     echo "  --apply             Apply hardening (creates backup, then verifies)"
     echo "  --unapply           Revert hardening settings (keeps OpenSCAP installed)"
     echo ""
@@ -104,6 +105,7 @@ usage() {
     echo "  sudo $(basename "$0") --install"
     echo "  sudo $(basename "$0") --scan"
     echo "  sudo $(basename "$0") --scan-cve              # known-CVE scan (OVAL)"
+    echo "  sudo $(basename "$0") --fix-cve               # apply security updates"
     echo "  sudo $(basename "$0") --dry-run"
     echo "  sudo $(basename "$0") --apply --level 1     # CIS Level 1 (basic)"
     echo "  sudo $(basename "$0") --apply --level 2     # CIS Level 2 (strict)"
@@ -134,6 +136,7 @@ parse_args() {
         case "$1" in
             --scan)      MODE="scan" ;;
             --scan-cve)  MODE="scan_cve" ;;
+            --fix-cve)   MODE="fix_cve" ;;
             --install)   MODE="install" ;;
             --uninstall) MODE="uninstall" ;;
             --apply)     MODE="apply" ;;
@@ -1239,8 +1242,75 @@ run_scan_cve() {
     log_info "HTML report: $report"
 
     print_cve_summary "$results" "$feed"
+}
 
-    # --min-cvss style gate could hook here later (FAZ 6).
+# ── Security Patching (--fix-cve) ───────────────────────────────────────────────
+
+# List packages with a pending *security* update (per package manager).
+security_updates() {
+    case "$PKG_MANAGER" in
+        apt-get)
+            apt-get -s upgrade 2>/dev/null \
+                | awk '/^Inst/ && /[Ss]ecurity/ {print $2}'
+            ;;
+        dnf|yum)
+            "$PKG_MANAGER" -q updateinfo list security 2>/dev/null \
+                | awk 'NF>=3 {print $NF}' | sort -u
+            ;;
+        zypper)
+            zypper -q list-patches --category security 2>/dev/null \
+                | awk -F'|' 'NR>2 {gsub(/ /,"",$2); if($2) print $2}'
+            ;;
+        pacman) : ;;  # Arch has no security-only channel
+    esac
+}
+
+run_fix_cve() {
+    log_section "Security Patching (--fix-cve)"
+
+    if [[ "$ARCH_FALLBACK" == "true" || "$PKG_MANAGER" == "pacman" ]]; then
+        log_warn "Arch has no security-only update channel."
+        log_info "Use ${BOLD}pacman -Syu${NC} to apply all updates."
+        return
+    fi
+
+    # Refresh metadata so the security list is current.
+    log_info "Refreshing package metadata..."
+    case "$PKG_MANAGER" in
+        apt-get) apt-get update -qq 2>/dev/null || log_warn "apt-get update failed (offline?)" ;;
+        dnf|yum) "$PKG_MANAGER" -q makecache 2>/dev/null || true ;;
+        zypper)  zypper -q refresh 2>/dev/null || true ;;
+    esac
+
+    local pkgs; mapfile -t pkgs < <(security_updates)
+    if [[ ${#pkgs[@]} -eq 0 ]]; then
+        log_info "No pending security updates — system is up to date."
+        return
+    fi
+
+    log_warn "${#pkgs[@]} package(s) have a security update available:"
+    printf '    • %s\n' "${pkgs[@]}" | head -40
+    [[ ${#pkgs[@]} -gt 40 ]] && echo "    … (+$(( ${#pkgs[@]} - 40 )) more)"
+    echo ""
+    confirm "Install these security updates now?" || { log_warn "Aborted."; exit 0; }
+
+    echo ""
+    local rc=0
+    case "$PKG_MANAGER" in
+        apt-get)
+            # shellcheck disable=SC2068
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade ${pkgs[@]} || rc=$? ;;
+        dnf|yum) "$PKG_MANAGER" upgrade -y --security || rc=$? ;;
+        zypper)  zypper patch -y --category security || rc=$? ;;
+    esac
+
+    echo ""
+    if [[ $rc -ne 0 ]]; then
+        log_error "Security update failed (exit $rc)."
+        exit "$rc"
+    fi
+    log_info "Security updates applied."
+    log_info "Verify with: ${BOLD}$(basename "$0") --scan-cve${NC}"
 }
 
 # ── Apply ─────────────────────────────────────────────────────────────────────
@@ -1635,7 +1705,7 @@ main() {
 
     # CVE scan needs only oscap + the OVAL feed — skip the XCCDF/profile prep.
     if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" \
-          && "$MODE" != "scan_cve" ]]; then
+          && "$MODE" != "scan_cve" && "$MODE" != "fix_cve" ]]; then
         detect_active_services
         check_dependencies
         validate_profile
@@ -1645,6 +1715,7 @@ main() {
     case "$MODE" in
         scan)          run_scan ;;
         scan_cve)      run_scan_cve ;;
+        fix_cve)       run_fix_cve ;;
         apply)         run_apply ;;
         unapply)       run_unapply ;;
         uninstall)     run_uninstall ;;
