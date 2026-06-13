@@ -22,8 +22,7 @@ OpenSCAP tabanlı Linux sıkılaştırma aracı. Distro'ya göre YAML profili in
 - **`--unapply`** — Son yedekten hardening değişikliklerini geri alır
 - **`--scan`** — CIS/ANSSI/STIG profiliyle uyumluluk taraması, HTML/JSON rapor
 - **`--dry-run`** — Neyin değişeceğini severity gruplarına göre gösterir, sisteme dokunmaz
-- **`--level`** — Sıkılaştırma seviyesini doğrudan seçer: `1` = CIS Level 1 (temel), `2` = CIS Level 2 (sıkı)
-- **`--env`** — `production` / `staging` / `development` profili seçer
+- **`--level`** — Sıkılaştırma seviyesini seçer: `1` = CIS Level 1 (temel), `2` = CIS Level 2 (sıkı, varsayılan)
 - **Exclusions** — Belirli kuralları, servisleri veya path'leri atlama
 - **Hooks** — Sıkılaştırma öncesi/sonrası ve rollback için özel script çalıştırma
 - **XCCDF Tailoring** — Exclusion kuralları otomatik tailoring dosyasına dönüştürülür
@@ -65,8 +64,7 @@ sudo ./linuxharden.sh --apply --level 1    # temel
 sudo ./linuxharden.sh --apply --level 2    # sıkı (varsayılan)
 ```
 
-> `--level`, profil seçiminin kısa yoludur ve `--env`'e göre önceliklidir.
-> Seviye belirtmeden `--apply` çalıştırmak Level 2'yi (sıkı) varsayar.
+> `--level`, baseline'ı seçmenin tek yoludur; belirtilmezse Level 2 (sıkı) varsayılır.
 
 ---
 
@@ -138,7 +136,6 @@ sudo ./linuxharden.sh --scan --conf ./profiles/ubuntu-22.04.yml
 | `--scan` | Compliance taraması, rapor üretir |
 | `--dry-run` | Başarısız kuralları severity gruplarına göre gösterir, sisteme dokunmaz (`--apply`'ı ima eder) |
 | `--level <1\|2>` | Sıkılaştırma seviyesi: `1` = CIS Level 1 (temel), `2` = CIS Level 2 (sıkı, varsayılan) |
-| `--env <profil>` | `production` \| `staging` \| `development` (varsayılan: production) |
 | `--format <tip>` | `html` \| `json` \| `both` (varsayılan: html) |
 | `--profile <id>` | SCAP profil ID override |
 | `--conf <dosya>` | Yerel .yml profil dosyası kullan |
@@ -161,9 +158,8 @@ packages:
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml
   profiles:
-    production:  xccdf_org.ssgproject.content_profile_cis_level2_server
-    staging:     xccdf_org.ssgproject.content_profile_cis_level2_server
-    development: xccdf_org.ssgproject.content_profile_cis_level1_server
+    production:  xccdf_org.ssgproject.content_profile_cis_level2_server  # --level 2
+    development: xccdf_org.ssgproject.content_profile_cis_level1_server  # --level 1
 
 backup:
   config_dirs:

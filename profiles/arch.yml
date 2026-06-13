@@ -12,9 +12,8 @@ packages:
 scap:
   xml_path: ""
   profiles:
-    production:  ""
-    staging:     ""
-    development: ""
+    production:  ""  # --level 2
+    development: ""  # --level 1
 
 backup:
   config_dirs:

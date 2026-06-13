@@ -13,8 +13,11 @@ BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
 
 # Runtime flags
 MODE="" REPORT_FORMAT="html" PROFILE_OVERRIDE="" LOCAL_CONF="" CONF_FILE=""
-DRY_RUN=false ENV_PROFILE="production"
-SEC_LEVEL="" SEC_LEVEL_LABEL=""
+DRY_RUN=false
+# ENV_PROFILE is the internal key into scap.profiles; it is driven solely by --level.
+# Default: level 2 (strict). --level 1 switches to the basic baseline.
+ENV_PROFILE="production"
+SEC_LEVEL="2" SEC_LEVEL_LABEL="CIS Level 2 (strict)"
 
 # Populated by parse_conf
 PKG_MANAGER="" OSCAP_PKG="" SSG_PKG="" XML_PATH="" PROFILE_ID="" ARCH_FALLBACK="false"
@@ -73,8 +76,7 @@ usage() {
     echo ""
     echo -e "${BOLD}Options:${NC}"
     echo "  --dry-run           Preview what would change without applying (implies --apply)"
-    echo "  --level <1|2>       Hardening level: 1 = CIS Level 1 (basic), 2 = CIS Level 2 (strict)"
-    echo "  --env <profile>     Environment: production | staging | development  (default: production)"
+    echo "  --level <1|2>       Hardening level: 1 = CIS Level 1 (basic), 2 = CIS Level 2 (strict, default)"
     echo "  --format <type>     Report format: html | json | both  (default: html)"
     echo "  --profile <id>      Override SCAP profile ID"
     echo "  --conf <file>       Use a local .yml instead of downloading"
@@ -110,7 +112,6 @@ parse_args() {
             --unapply)   MODE="unapply" ;;
             --dry-run)   DRY_RUN=true ;;
             --level)     shift; SEC_LEVEL="${1:-}" ;;
-            --env)       shift; ENV_PROFILE="${1:-production}" ;;
             --format)    shift; REPORT_FORMAT="${1:-html}" ;;
             --profile)   shift; PROFILE_OVERRIDE="${1:-}" ;;
             --conf)      shift; LOCAL_CONF="${1:-}" ;;
@@ -128,20 +129,12 @@ parse_args() {
         *) log_error "Invalid --format: $REPORT_FORMAT (use: html | json | both)"; exit 1 ;;
     esac
 
-    case "$ENV_PROFILE" in
-        production|staging|development) ;;
-        *) log_error "Invalid --env: $ENV_PROFILE (use: production | staging | development)"; exit 1 ;;
+    # --level picks the strict vs. basic baseline and maps onto the scap.profiles keys.
+    case "$SEC_LEVEL" in
+        1) ENV_PROFILE="development"; SEC_LEVEL_LABEL="CIS Level 1 (basic)" ;;
+        2) ENV_PROFILE="production";  SEC_LEVEL_LABEL="CIS Level 2 (strict)" ;;
+        *) log_error "Invalid --level: $SEC_LEVEL (use: 1 | 2)"; exit 1 ;;
     esac
-
-    # --level is a friendly alias for picking the strict vs. basic baseline.
-    # It maps onto the profile keys and takes precedence over --env if both are given.
-    if [[ -n "$SEC_LEVEL" ]]; then
-        case "$SEC_LEVEL" in
-            1) ENV_PROFILE="development"; SEC_LEVEL_LABEL="CIS Level 1 (basic)" ;;
-            2) ENV_PROFILE="production";  SEC_LEVEL_LABEL="CIS Level 2 (strict)" ;;
-            *) log_error "Invalid --level: $SEC_LEVEL (use: 1 | 2)"; exit 1 ;;
-        esac
-    fi
 
     if [[ "$DRY_RUN" == true && "$MODE" != "apply" ]]; then
         log_warn "--dry-run only applies to --apply, ignoring."
@@ -172,11 +165,7 @@ detect_distro() {
     DISTRO_VERSION_MAJOR="${DISTRO_VERSION%%.*}"
 
     log_info "Detected: ${DISTRO_PRETTY}"
-    if [[ -n "$SEC_LEVEL_LABEL" ]]; then
-        log_info "Hardening level: ${SEC_LEVEL_LABEL}"
-    else
-        log_info "Environment: ${ENV_PROFILE}"
-    fi
+    log_info "Hardening level: ${SEC_LEVEL_LABEL}"
 }
 
 # ── Profile Resolution ────────────────────────────────────────────────────────
@@ -980,7 +969,7 @@ run_apply() {
         log_warn "No changes will be made to the system."
         echo ""
         log_info "Profile  : $ACTIVE_PROFILE_ID"
-        log_info "Level    : ${SEC_LEVEL_LABEL:-$ENV_PROFILE}"
+        log_info "Level    : ${SEC_LEVEL_LABEL}"
         [[ -n "$EXCLUSION_RULES" ]] && log_info "Excluded : $(echo "$EXCLUSION_RULES" | wc -w) rule(s)"
         echo ""
         mkdir -p "$REPORT_DIR"

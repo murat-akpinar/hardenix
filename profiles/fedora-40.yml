@@ -13,9 +13,8 @@ scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-fedora-ds.xml
   # SSG, Fedora için CIS profili yayınlamıyor; OSPP en kapsamlı profildir.
   profiles:
-    production:  xccdf_org.ssgproject.content_profile_ospp
-    staging:     xccdf_org.ssgproject.content_profile_ospp
-    development: xccdf_org.ssgproject.content_profile_standard
+    production:  xccdf_org.ssgproject.content_profile_ospp      # --level 2
+    development: xccdf_org.ssgproject.content_profile_standard  # --level 1
 
 backup:
   config_dirs:
