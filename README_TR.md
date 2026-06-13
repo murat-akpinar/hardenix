@@ -293,11 +293,19 @@ sudo ./linuxharden.sh --scan-cve
 
 ```
   ┌─ CVE Scan Summary ───────────────────────────┐
-  │  Vulnerable advisories : 8                    │
-  │  Distinct CVEs         : 27                   │
+  │  Vulnerable CVEs       : 21                   │
+  │  Fixing advisories     : 1                    │
   └──────────────────────────────────────────────┘
-  6 Medium  ·  2 Low
+  8 High  ·  8 Medium  ·  5 Low
+
+  Vulnerable CVEs:
+    High      CVE-2026-31676     USN-8373-1
+    High      CVE-2026-43284     USN-8373-1
+    ...
 ```
+
+Liste **CVE-merkezlidir** (herkes CVE ile arar); USN yalnızca düzeltmeyi getiren
+advisory referansı olarak gösterilir. Tam liste HTML raporda.
 
 - OVAL feed'i (profildeki `scap.oval_url`) indirilir, Python ile açılır (`bzip2`/`gzip`
   binary'sine gerek yok) ve 24 saat önbelleğe alınır.
