@@ -574,7 +574,10 @@ PYEOF
 # Print the sorted list of installed package names for the active manager.
 snapshot_packages() {
     case "$PKG_MANAGER" in
-        apt-get)        dpkg-query -W -f='${Package}\n' 2>/dev/null ;;
+        # Filter on install status 'ii' — dpkg-query also lists packages left in
+        # the 'rc' (removed, config-files remain) state, which would mask a
+        # `apt-get remove` from the reconcile diff.
+        apt-get)        dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 2>/dev/null | awk '$1=="ii"{print $2}' ;;
         dnf|yum|zypper) rpm -qa --qf '%{NAME}\n' 2>/dev/null ;;
         pacman)         pacman -Qq 2>/dev/null ;;
     esac | sort -u
