@@ -569,6 +569,37 @@ print(f"  {B}└{'─'*46}┘{NC}")
 PYEOF
 }
 
+# ── Package Helpers ───────────────────────────────────────────────────────────
+
+# Print the sorted list of installed package names for the active manager.
+snapshot_packages() {
+    case "$PKG_MANAGER" in
+        apt-get)        dpkg-query -W -f='${Package}\n' 2>/dev/null ;;
+        dnf|yum|zypper) rpm -qa --qf '%{NAME}\n' 2>/dev/null ;;
+        pacman)         pacman -Qq 2>/dev/null ;;
+    esac | sort -u
+}
+
+pkg_install() {
+    [[ $# -eq 0 ]] && return 0
+    case "$PKG_MANAGER" in
+        apt-get) apt-get install -y "$@" ;;
+        dnf|yum) "$PKG_MANAGER" install -y "$@" ;;
+        zypper)  zypper install -y "$@" ;;
+        pacman)  pacman -S --noconfirm "$@" ;;
+    esac
+}
+
+pkg_remove() {
+    [[ $# -eq 0 ]] && return 0
+    case "$PKG_MANAGER" in
+        apt-get) apt-get remove -y "$@" ;;
+        dnf|yum) "$PKG_MANAGER" remove -y "$@" ;;
+        zypper)  zypper remove -y "$@" ;;
+        pacman)  pacman -Rns --noconfirm "$@" ;;
+    esac
+}
+
 # ── Backup ────────────────────────────────────────────────────────────────────
 
 create_backup() {
@@ -608,6 +639,11 @@ create_backup() {
         | eval "$svc_filter" \
         | sort > "${backup_dir}/services_enabled.txt"
     log_info "Service states saved" >&2
+
+    # Snapshot installed packages so --unapply can reinstall any the
+    # remediation removed (and remove any it added).
+    snapshot_packages > "${backup_dir}/packages.txt"
+    log_info "Package list saved ($(wc -l < "${backup_dir}/packages.txt") packages)" >&2
 
     # Save current .yml profile alongside backup
     cp "$CONF_FILE" "${backup_dir}/profile.yml" 2>/dev/null || true
@@ -1128,6 +1164,28 @@ run_unapply() {
         log_warn "No config archive in backup"
     fi
 
+    # Reconcile packages: reinstall any the hardening removed, remove any it added.
+    if [[ -f "${backup_dir}/packages.txt" ]]; then
+        log_info "Reconciling packages..."
+        local cur_pkgs; cur_pkgs=$(mktemp)
+        snapshot_packages > "$cur_pkgs"
+
+        local removed; mapfile -t removed < <(comm -23 "${backup_dir}/packages.txt" "$cur_pkgs")
+        local added;   mapfile -t added   < <(comm -13 "${backup_dir}/packages.txt" "$cur_pkgs")
+
+        if [[ ${#removed[@]} -gt 0 ]]; then
+            log_info "Reinstalling ${#removed[@]} package(s) removed by hardening: ${removed[*]}"
+            pkg_install "${removed[@]}" 2>/dev/null \
+                || log_warn "Some packages could not be reinstalled (check network/repos)"
+        fi
+        if [[ ${#added[@]} -gt 0 ]]; then
+            log_info "Removing ${#added[@]} package(s) added by hardening: ${added[*]}"
+            pkg_remove "${added[@]}" 2>/dev/null \
+                || log_warn "Some packages could not be removed"
+        fi
+        rm -f "$cur_pkgs"
+    fi
+
     # Restore service states
     if [[ -f "${backup_dir}/services_enabled.txt" ]]; then
         log_info "Restoring service states..."
@@ -1139,9 +1197,13 @@ run_unapply() {
         comm -23 "$current" "${backup_dir}/services_enabled.txt" \
             | xargs -r systemctl disable --now 2>/dev/null || true
 
-        # Re-enable services that were originally enabled
-        comm -13 "$current" "${backup_dir}/services_enabled.txt" \
-            | xargs -r systemctl enable --now 2>/dev/null || true
+        # Re-enable services that were originally enabled — unmask first, since
+        # hardening may have masked them (a masked service cannot be enabled).
+        while read -r svc; do
+            [[ -z "$svc" ]] && continue
+            systemctl unmask "$svc" 2>/dev/null || true
+            systemctl enable --now "$svc" 2>/dev/null || true
+        done < <(comm -13 "$current" "${backup_dir}/services_enabled.txt")
 
         rm -f "$current"
         log_info "Service states restored"
