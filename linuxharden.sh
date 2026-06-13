@@ -77,10 +77,10 @@ usage() {
     echo ""
     echo -e "${BOLD}Modes:${NC}"
     echo "  --install           Install OpenSCAP + SCAP content for this distro"
-    echo "  --uninstall         Remove OpenSCAP + SCAP packages installed by --install"
+    echo "  --uninstall         Revert hardening, then remove OpenSCAP + SCAP packages"
     echo "  --scan              Scan system compliance and generate report"
     echo "  --apply             Apply hardening (creates backup, then verifies)"
-    echo "  --unapply           Revert hardening from latest backup"
+    echo "  --unapply           Revert hardening settings (keeps OpenSCAP installed)"
     echo ""
     echo -e "${BOLD}Options:${NC}"
     echo "  --dry-run           Preview what would change without applying (implies --apply)"
@@ -590,16 +590,6 @@ pkg_install() {
         dnf|yum) "$PKG_MANAGER" install -y "$@" ;;
         zypper)  zypper install -y "$@" ;;
         pacman)  pacman -S --noconfirm "$@" ;;
-    esac
-}
-
-pkg_remove() {
-    [[ $# -eq 0 ]] && return 0
-    case "$PKG_MANAGER" in
-        apt-get) apt-get remove -y "$@" ;;
-        dnf|yum) "$PKG_MANAGER" remove -y "$@" ;;
-        zypper)  zypper remove -y "$@" ;;
-        pacman)  pacman -Rns --noconfirm "$@" ;;
     esac
 }
 
@@ -1135,28 +1125,23 @@ run_apply() {
 
 # ── Unapply ───────────────────────────────────────────────────────────────────
 
-run_unapply() {
-    log_section "Reverting Hardening"
-
+# Locate the most recent backup directory; echo its path, or return 1 if none.
+latest_backup_dir() {
     local latest="${BACKUP_BASE}/latest"
-    if [[ ! -L "$latest" ]]; then
-        log_error "No backup found at ${BACKUP_BASE}/latest"
-        echo "  Run --apply first."
-        exit 1
-    fi
+    [[ -e "$latest" ]] || return 1
+    local dir; dir=$(readlink -f "$latest")
+    [[ -f "${dir}/manifest.conf" ]] || return 1
+    echo "$dir"
+}
 
-    local backup_dir; backup_dir=$(readlink -f "$latest")
-    if [[ ! -f "${backup_dir}/manifest.conf" ]]; then
-        log_error "Backup manifest missing: ${backup_dir}/manifest.conf"
-        exit 1
-    fi
-
-    local ts; ts=$(awk -F'=' '/^timestamp/{print $2}' "${backup_dir}/manifest.conf")
+# Revert the hardening changes recorded in a backup: restore config files,
+# reinstall packages the hardening removed, and restore service enable/disable
+# state. Deliberately does NOT remove any package or the OpenSCAP tooling —
+# --unapply only undoes the settings the hardening wrote. (Use --uninstall to
+# also remove OpenSCAP afterwards.)
+revert_hardening() {
+    local backup_dir="$1"
     local rollback_hook; rollback_hook=$(awk -F'=' '/^hook_rollback/{print $2}' "${backup_dir}/manifest.conf")
-    log_info "Restoring from: $ts"
-    echo -n "  Continue? [y/N] "
-    read -r confirm
-    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
 
     # Restore config files
     if [[ -f "${backup_dir}/configs.tar.gz" ]]; then
@@ -1167,24 +1152,19 @@ run_unapply() {
         log_warn "No config archive in backup"
     fi
 
-    # Reconcile packages: reinstall any the hardening removed, remove any it added.
+    # Reinstall packages the hardening removed. Packages the hardening *added*
+    # are left in place — unapply must not delete applications.
     if [[ -f "${backup_dir}/packages.txt" ]]; then
-        log_info "Reconciling packages..."
+        log_info "Checking for packages removed by hardening..."
         local cur_pkgs; cur_pkgs=$(mktemp)
         snapshot_packages > "$cur_pkgs"
-
         local removed; mapfile -t removed < <(comm -23 "${backup_dir}/packages.txt" "$cur_pkgs")
-        local added;   mapfile -t added   < <(comm -13 "${backup_dir}/packages.txt" "$cur_pkgs")
-
         if [[ ${#removed[@]} -gt 0 ]]; then
-            log_info "Reinstalling ${#removed[@]} package(s) removed by hardening: ${removed[*]}"
+            log_info "Reinstalling ${#removed[@]} package(s): ${removed[*]}"
             pkg_install "${removed[@]}" 2>/dev/null \
                 || log_warn "Some packages could not be reinstalled (check network/repos)"
-        fi
-        if [[ ${#added[@]} -gt 0 ]]; then
-            log_info "Removing ${#added[@]} package(s) added by hardening: ${added[*]}"
-            pkg_remove "${added[@]}" 2>/dev/null \
-                || log_warn "Some packages could not be removed"
+        else
+            log_info "No removed packages to reinstall."
         fi
         rm -f "$cur_pkgs"
     fi
@@ -1224,25 +1204,57 @@ run_unapply() {
 
     # Rollback hook (read from manifest so it's the hook that was set at install time)
     if [[ -n "$rollback_hook" ]]; then run_hook "$rollback_hook" "on_rollback"; fi
+    return 0
+}
 
-    log_info "Revert complete."
+run_unapply() {
+    log_section "Reverting Hardening"
+
+    local backup_dir
+    if ! backup_dir=$(latest_backup_dir); then
+        log_error "No usable backup found at ${BACKUP_BASE}/latest"
+        echo "  Run --apply first."
+        exit 1
+    fi
+
+    local ts; ts=$(awk -F'=' '/^timestamp/{print $2}' "${backup_dir}/manifest.conf")
+    log_info "Restoring from: $ts"
+    echo -n "  Continue? [y/N] "
+    read -r confirm
+    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
+
+    revert_hardening "$backup_dir"
+
+    log_info "Revert complete. OpenSCAP stays installed — use --uninstall to remove it."
     log_warn "A reboot is strongly recommended."
 }
 
 # ── Uninstall ─────────────────────────────────────────────────────────────────
 
 run_uninstall() {
-    log_section "Removing OpenSCAP + SCAP Packages"
-    echo -e "  ${YELLOW}${BOLD}WARNING:${NC} OpenSCAP and SCAP content packages will be removed."
+    log_section "Reverting Hardening + Removing OpenSCAP"
+    echo -e "  ${YELLOW}${BOLD}WARNING:${NC} Hardening settings will be reverted first, then"
+    echo -e "  OpenSCAP and SCAP content packages will be removed."
     echo -e "  You will no longer be able to run ${BOLD}--scan${NC} or ${BOLD}--apply${NC}."
-    echo -e "  Hardening settings already applied remain in place — use ${BOLD}--unapply${NC} first if needed."
     echo ""
     echo -n "  Continue? [y/N] "
     read -r confirm
     if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
 
+    # Step 1: revert hardening settings (if a backup exists).
+    local backup_dir
+    if backup_dir=$(latest_backup_dir); then
+        local ts; ts=$(awk -F'=' '/^timestamp/{print $2}' "${backup_dir}/manifest.conf")
+        echo ""
+        log_info "Reverting hardening from: $ts"
+        revert_hardening "$backup_dir"
+    else
+        log_warn "No backup found — skipping settings revert, removing packages only."
+    fi
+
+    # Step 2: remove the OpenSCAP tooling.
     echo ""
-    log_info "Removing packages..."
+    log_info "Removing OpenSCAP packages..."
 
     # shellcheck disable=SC2086
     case "$PKG_MANAGER" in
@@ -1262,7 +1274,7 @@ run_uninstall() {
     esac
 
     log_info "OpenSCAP packages removed."
-    log_warn "Hardening settings are still active. Run ${BOLD}--unapply${NC} to revert them."
+    log_warn "A reboot is strongly recommended."
 }
 
 # ── Arch Fallback ─────────────────────────────────────────────────────────────
