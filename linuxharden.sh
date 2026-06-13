@@ -480,7 +480,7 @@ oscap_eval_args() {
     local args=()
     [[ -n "$TAILORING_FILE" ]] && args+=(--tailoring-file "$TAILORING_FILE")
     args+=(--profile "$ACTIVE_PROFILE_ID")
-    args+=(--results "$results_file")
+    args+=(--results-arf "$results_file")
     [[ "$remediate" == "true" ]] && args+=(--remediate)
     args+=("$XML_PATH")
     echo "${args[@]}"
@@ -938,14 +938,22 @@ run_scan() {
     log_info "Reports : $REPORT_DIR"
     echo ""
 
-    local scan_pid
+    local scan_pid err_log="${REPORT_DIR}/scan_${ts}.err"
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "$arf_file") >/dev/null 2>&1 &
+    oscap xccdf eval $(oscap_eval_args "$arf_file") >"$err_log" 2>&1 &
     scan_pid=$!
     _spin "$scan_pid" "Scanning system..."
     wait "$scan_pid" 2>/dev/null || true
 
-    [[ ! -f "$arf_file" ]] && { log_error "Scan produced no output."; exit 1; }
+    if [[ ! -f "$arf_file" ]]; then
+        log_error "Scan produced no output."
+        if [[ -s "$err_log" ]]; then
+            echo ""
+            sed 's/^/  /' "$err_log"
+        fi
+        exit 1
+    fi
+    rm -f "$err_log"
 
     case "$REPORT_FORMAT" in
         html) generate_html_report "$arf_file" "${REPORT_DIR}/scan_${ts}.html" ;;
@@ -987,6 +995,8 @@ run_apply() {
             print_failing_rules "$arf"
             echo ""
             print_scan_summary "$arf"
+        else
+            log_warn "Dry-run scan produced no output — check oscap manually."
         fi
 
         echo ""
@@ -1011,7 +1021,7 @@ run_apply() {
     local pre_arf="${backup_dir}/pre_hardening.arf"
     local pre_pid
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "$pre_arf") >/dev/null 2>&1 &
+    oscap xccdf eval $(oscap_eval_args "$pre_arf") >"${backup_dir}/pre.err" 2>&1 &
     pre_pid=$!
     _spin "$pre_pid" "Baseline scan (before)..."
     wait "$pre_pid" 2>/dev/null || true
@@ -1022,7 +1032,7 @@ run_apply() {
     echo ""
     local fix_pid
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "${backup_dir}/remediation.arf" "true") >/dev/null 2>&1 &
+    oscap xccdf eval $(oscap_eval_args "${backup_dir}/remediation.arf" "true") >"${backup_dir}/fix.err" 2>&1 &
     fix_pid=$!
     _spin "$fix_pid" "Applying fixes — this may take several minutes..."
     wait "$fix_pid" 2>/dev/null || true
@@ -1033,7 +1043,7 @@ run_apply() {
     local post_arf="${backup_dir}/post_hardening.arf"
     local post_pid
     # shellcheck disable=SC2046
-    oscap xccdf eval $(oscap_eval_args "$post_arf") >/dev/null 2>&1 &
+    oscap xccdf eval $(oscap_eval_args "$post_arf") >"${backup_dir}/post.err" 2>&1 &
     post_pid=$!
     _spin "$post_pid" "Verification scan (after)..."
     wait "$post_pid" 2>/dev/null || true
