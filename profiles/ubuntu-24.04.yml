@@ -16,6 +16,8 @@ scap:
     development: xccdf_org.ssgproject.content_profile_cis_level1_server  # --level 1
 
 backup:
+  # CIS remediation'ın dokunduğu tüm config konumları — unapply'ın tam geri
+  # alabilmesi için. Var olmayan yollar yedeklemede otomatik atlanır.
   config_dirs:
     - /etc/ssh
     - /etc/sysctl.conf
@@ -24,11 +26,43 @@ backup:
     - /etc/pam.d
     - /etc/audit
     - /etc/login.defs
+    - /etc/sudoers
     - /etc/sudoers.d
     - /etc/modprobe.d
-    - /etc/cron.d
     - /etc/profile.d
     - /etc/apparmor.d
+    # Logging
+    - /etc/rsyslog.conf
+    - /etc/rsyslog.d
+    - /etc/logrotate.conf
+    - /etc/logrotate.d
+    # systemd (coredump, journald, timesyncd, resolved drop-in'leri)
+    - /etc/systemd
+    # Boot/kernel & servis varsayılanları (grub cmdline vb.)
+    - /etc/default
+    # Yasal uyarı banner'ları
+    - /etc/issue
+    - /etc/issue.net
+    - /etc/motd
+    # Zaman senkronu
+    - /etc/chrony
+    - /etc/chrony.conf
+    # cron / at erişim kontrolü ve zamanlanmış işler
+    - /etc/crontab
+    - /etc/cron.d
+    - /etc/cron.hourly
+    - /etc/cron.daily
+    - /etc/cron.weekly
+    - /etc/cron.monthly
+    - /etc/cron.allow
+    - /etc/cron.deny
+    - /etc/at.allow
+    - /etc/at.deny
+    # TCP wrappers
+    - /etc/hosts.allow
+    - /etc/hosts.deny
+    # Mount seçenekleri (nodev/nosuid/noexec)
+    - /etc/fstab
 
 exclusions:
   rules:
