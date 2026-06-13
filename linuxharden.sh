@@ -23,6 +23,7 @@ SEC_LEVEL="2" SEC_LEVEL_LABEL="CIS Level 2 (strict)"
 
 # Populated by parse_conf
 PKG_MANAGER="" OSCAP_PKG="" SSG_PKG="" XML_PATH="" PROFILE_ID="" ARCH_FALLBACK="false"
+OVAL_URL=""             # scap.oval_url: vendor CVE/OVAL feed for --scan-cve
 BACKUP_DIRS="" EXCLUSION_RULES="" EXCLUSION_SERVICES="" EXCLUSION_PATHS=""
 HOOK_PRE="" HOOK_POST="" HOOK_ROLLBACK=""
 
@@ -81,6 +82,7 @@ usage() {
     echo "  --install           Install OpenSCAP + SCAP content for this distro"
     echo "  --uninstall         Revert hardening, then remove OpenSCAP + SCAP packages"
     echo "  --scan              Scan system compliance and generate report"
+    echo "  --scan-cve          Scan installed packages for known CVEs (OVAL feed)"
     echo "  --apply             Apply hardening (creates backup, then verifies)"
     echo "  --unapply           Revert hardening settings (keeps OpenSCAP installed)"
     echo ""
@@ -101,6 +103,7 @@ usage() {
     echo -e "${BOLD}Examples:${NC}"
     echo "  sudo $(basename "$0") --install"
     echo "  sudo $(basename "$0") --scan"
+    echo "  sudo $(basename "$0") --scan-cve              # known-CVE scan (OVAL)"
     echo "  sudo $(basename "$0") --dry-run"
     echo "  sudo $(basename "$0") --apply --level 1     # CIS Level 1 (basic)"
     echo "  sudo $(basename "$0") --apply --level 2     # CIS Level 2 (strict)"
@@ -130,6 +133,7 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --scan)      MODE="scan" ;;
+            --scan-cve)  MODE="scan_cve" ;;
             --install)   MODE="install" ;;
             --uninstall) MODE="uninstall" ;;
             --apply)     MODE="apply" ;;
@@ -281,6 +285,7 @@ print(f'PKG_MANAGER={q(pkgs.get("manager",""))}')
 print(f'OSCAP_PKG={q(pkgs.get("oscap",""))}')
 print(f'SSG_PKG={q(pkgs.get("ssg",""))}')
 print(f'XML_PATH={q(scap.get("xml_path",""))}')
+print(f'OVAL_URL={q(scap.get("oval_url",""))}')
 print(f'PROFILE_ID={q(profile_id)}')
 print(f'ARCH_FALLBACK={q(str(meta.get("arch_fallback", False)).lower())}')
 print(f'BACKUP_DIRS={qlist(bkup.get("config_dirs", []))}')
@@ -1080,6 +1085,149 @@ run_scan() {
     fi
 }
 
+# ── CVE / Vulnerability Scan (OVAL) ─────────────────────────────────────────────
+
+# Download the vendor OVAL feed to $2, decompressing .bz2/.gz. Cached for 1 day.
+download_oval_feed() {
+    local url="$1" out="$2"
+    mkdir -p "$(dirname "$out")"
+
+    # Reuse a fresh cached copy (< 24h old) to avoid re-downloading every run.
+    if [[ -f "$out" ]] && find "$out" -mtime -1 2>/dev/null | grep -q .; then
+        log_info "Using cached OVAL feed ($(date -r "$out" '+%Y-%m-%d %H:%M'))"
+        return 0
+    fi
+
+    local tmp; tmp="${out}.download"
+    log_info "Downloading OVAL feed..."
+    if command -v curl &>/dev/null; then
+        curl -fsSL --retry 2 "$url" -o "$tmp" || { log_error "Feed download failed: $url"; return 1; }
+    elif command -v wget &>/dev/null; then
+        wget -q "$url" -O "$tmp" || { log_error "Feed download failed: $url"; return 1; }
+    else
+        log_error "Neither curl nor wget available to fetch the OVAL feed."; return 1
+    fi
+
+    case "$url" in
+        *.bz2) bunzip2 -cf "$tmp" > "$out" 2>/dev/null || { log_error "bunzip2 failed (install bzip2)"; return 1; } ; rm -f "$tmp" ;;
+        *.gz)  gunzip  -cf "$tmp" > "$out" 2>/dev/null || { log_error "gunzip failed"; return 1; } ; rm -f "$tmp" ;;
+        *)     mv "$tmp" "$out" ;;
+    esac
+    log_info "Feed ready: $out"
+}
+
+# Summarize OVAL results: count vulnerable definitions, group by severity,
+# joining results (true/false) with the feed metadata (severity + CVE refs).
+print_cve_summary() {
+    local results="$1" feed="$2"
+    command -v python3 &>/dev/null || return 0
+
+    python3 - "$results" "$feed" <<'PYEOF'
+import sys, re
+import xml.etree.ElementTree as ET
+
+results_f, feed_f = sys.argv[1], sys.argv[2]
+G='\033[0;32m'; R='\033[0;31m'; Y='\033[1;33m'; C='\033[0;36m'; B='\033[1m'; NC='\033[0m'
+
+def lname(t): return t.rsplit('}', 1)[-1]
+
+# 1) definition_ids that evaluated TRUE (i.e. system is vulnerable)
+vuln = set()
+for ev, el in ET.iterparse(results_f, ('end',)):
+    if lname(el.tag) == 'definition' and el.get('result') == 'true':
+        vuln.add(el.get('definition_id') or el.get('id'))
+    if lname(el.tag) == 'definition':
+        el.clear()
+
+# 2) walk the feed; for each vulnerable definition collect severity + CVEs
+order = ['Critical', 'High', 'Medium', 'Low', 'Negligible', 'Untriaged']
+sev_count = {s: 0 for s in order}
+cves = set()
+rows = []
+for ev, el in ET.iterparse(feed_f, ('end',)):
+    if lname(el.tag) != 'definition':
+        continue
+    did = el.get('id')
+    if did in vuln:
+        sev, title = 'Untriaged', ''
+        for sub in el.iter():
+            ln = lname(sub.tag)
+            if ln == 'severity' and sub.text: sev = sub.text.strip().title()
+            elif ln == 'title' and sub.text and not title: title = sub.text.strip()
+            elif ln == 'cve' and sub.text:
+                m = re.search(r'CVE-\d{4}-\d+', sub.text)
+                if m: cves.add(m.group())
+        if sev not in sev_count: sev_count[sev] = 0
+        sev_count[sev] += 1
+        rows.append((sev, title))
+    el.clear()
+
+total = len(vuln)
+print(f"\n  {B}┌─ CVE Scan Summary {'─'*28}┐{NC}")
+print(f"  │  Vulnerable advisories : {total:<19}│")
+print(f"  │  Distinct CVEs         : {len(cves):<19}│")
+print(f"  {B}└{'─'*46}┘{NC}")
+rank = {'Critical':0,'High':1,'Medium':2,'Low':3,'Negligible':4,'Untriaged':5}
+parts = []
+for s in sorted(sev_count, key=lambda x: rank.get(x, 9)):
+    n = sev_count[s]
+    if not n: continue
+    col = R if s in ('Critical','High') else (Y if s=='Medium' else NC)
+    parts.append(f"{col}{n} {s}{NC}")
+if parts:
+    print("  " + "  ·  ".join(parts))
+# show the most severe handful
+top = sorted(rows, key=lambda r: rank.get(r[0], 9))[:10]
+if top:
+    print(f"\n  {B}Top advisories:{NC}")
+    for sev, title in top:
+        col = R if sev in ('Critical','High') else (Y if sev=='Medium' else NC)
+        print(f"    {col}{sev:<9}{NC} {title[:60]}")
+PYEOF
+}
+
+run_scan_cve() {
+    log_section "CVE / Vulnerability Scan (OVAL)"
+
+    if [[ "$ARCH_FALLBACK" == "true" ]]; then
+        log_error "CVE scan is not supported on this distro (no OVAL feed configured)."
+        exit 1
+    fi
+    if [[ -z "$OVAL_URL" ]]; then
+        log_error "No OVAL feed for this profile (set scap.oval_url in the .yml)."
+        exit 1
+    fi
+    if ! command -v oscap &>/dev/null; then
+        log_error "oscap not found — run ${BOLD}--install${NC} first."
+        exit 1
+    fi
+
+    mkdir -p "$REPORT_DIR"
+    local ts; ts=$(date +%Y%m%d_%H%M%S)
+    local feed="${REPORT_DIR}/oval-feed/$(basename "${OVAL_URL%.bz2}")"
+    feed="${feed%.gz}"
+
+    log_info "Feed URL : $OVAL_URL"
+    download_oval_feed "$OVAL_URL" "$feed" || exit 1
+
+    local results="${REPORT_DIR}/cve_${ts}.xml"
+    local report="${REPORT_DIR}/cve_${ts}.html"
+    echo ""
+
+    local pid
+    oscap oval eval --results "$results" --report "$report" "$feed" >/dev/null 2>&1 &
+    pid=$!
+    _spin "$pid" "Evaluating CVEs against installed packages..."
+    wait "$pid" 2>/dev/null || true   # oscap oval eval may exit non-zero
+
+    [[ -f "$results" ]] || { log_error "CVE scan produced no output."; exit 1; }
+    log_info "HTML report: $report"
+
+    print_cve_summary "$results" "$feed"
+
+    # --min-cvss style gate could hook here later (FAZ 6).
+}
+
 # ── Apply ─────────────────────────────────────────────────────────────────────
 
 run_apply() {
@@ -1470,7 +1618,9 @@ main() {
     check_pyyaml
     parse_conf
 
-    if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" ]]; then
+    # CVE scan needs only oscap + the OVAL feed — skip the XCCDF/profile prep.
+    if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" \
+          && "$MODE" != "scan_cve" ]]; then
         detect_active_services
         check_dependencies
         validate_profile
@@ -1479,6 +1629,7 @@ main() {
 
     case "$MODE" in
         scan)          run_scan ;;
+        scan_cve)      run_scan_cve ;;
         apply)         run_apply ;;
         unapply)       run_unapply ;;
         uninstall)     run_uninstall ;;
