@@ -43,6 +43,9 @@ en sonda topluca test etmek zorunda kalmayız.
   (config revert esasen tam; kalan ~2 kural unapply'ın kasıtlı tuttuğu kurulu
   paketlerden — aide/pwquality)
 - ✅ **FAZ 4** — `--yes` / `--min-score` (test edildi)
+- ✅ **FAZ 5** — `--scan-cve` (OVAL/USN CVE taraması). Test: temiz kutu 0 CVE
+  (apt ile uyumlu); curl açıklı sürüme düşürülünce 8 USN / 27 CVE yakalandı,
+  severity'ye göre gruplu + HTML rapor. python3 ile bz2 decompress (bzip2 gerekmez).
 - Bulgu (mask): Boş sistemi hardenleyip **sonra** nginx/apache kurarsan servis
   **maskeli gelmez** (active/enabled/loaded). SSG yalnızca paket apply anında
   varsa mask yapar. → "önce hardenle, sonra kur" golden-image akışı güvenli.
