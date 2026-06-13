@@ -12,9 +12,8 @@ packages:
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml
   profiles:
-    production:  xccdf_org.ssgproject.content_profile_cis_level2_server
-    staging:     xccdf_org.ssgproject.content_profile_cis_level2_server
-    development: xccdf_org.ssgproject.content_profile_cis_level1_server
+    production:  xccdf_org.ssgproject.content_profile_cis_level2_server  # --level 2
+    development: xccdf_org.ssgproject.content_profile_cis_level1_server  # --level 1
 
 backup:
   config_dirs:

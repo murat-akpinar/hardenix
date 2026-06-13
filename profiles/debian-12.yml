@@ -13,9 +13,8 @@ scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml
   # SSG, Debian için CIS profili yayınlamıyor; en sıkı seçenek ANSSI BP28'dir.
   profiles:
-    production:  xccdf_org.ssgproject.content_profile_anssi_bp28_enhanced
-    staging:     xccdf_org.ssgproject.content_profile_anssi_bp28_enhanced
-    development: xccdf_org.ssgproject.content_profile_standard
+    production:  xccdf_org.ssgproject.content_profile_anssi_bp28_enhanced  # --level 2
+    development: xccdf_org.ssgproject.content_profile_standard             # --level 1
 
 backup:
   config_dirs:

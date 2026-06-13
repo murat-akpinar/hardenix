@@ -12,9 +12,8 @@ packages:
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml
   profiles:
-    production:  xccdf_org.ssgproject.content_profile_cis_server_l2
-    staging:     xccdf_org.ssgproject.content_profile_cis_server_l2
-    development: xccdf_org.ssgproject.content_profile_cis_server_l1
+    production:  xccdf_org.ssgproject.content_profile_cis_server_l2  # --level 2
+    development: xccdf_org.ssgproject.content_profile_cis_server_l1  # --level 1
 
 backup:
   config_dirs:
