@@ -216,7 +216,13 @@ detect_distro() {
     DISTRO_VERSION_MAJOR="${DISTRO_VERSION%%.*}"
 
     log_info "Detected: ${DISTRO_PRETTY}"
-    log_info "Hardening level: ${SEC_LEVEL_LABEL}"
+    # The hardening level only applies to the CIS compliance modes — it is
+    # irrelevant to CVE scanning, patching, install/uninstall, etc., so don't
+    # print it there (it looked like an applied state rather than a selection).
+    case "$MODE" in
+        scan|apply|unapply|scan_arch|apply_arch|unapply_arch)
+            log_info "Hardening level: ${SEC_LEVEL_LABEL}" ;;
+    esac
 }
 
 # ── Profile Resolution ────────────────────────────────────────────────────────
