@@ -10,22 +10,45 @@
 
 > Turkish version: [README_TR.md](README_TR.md)
 
-OpenSCAP-based Linux hardening tool. Downloads a YAML profile based on the distro; manages scanning, applying, and rolling back with a single script.
+OpenSCAP-based Linux hardening **and vulnerability management** tool. A single
+script handles two complementary layers of security from one YAML profile:
+
+1. **Compliance hardening** — CIS / ANSSI / STIG configuration baselines (`--scan`, `--apply`).
+2. **Vulnerability management** — known-CVE scanning against vendor OVAL feeds and
+   security patching (`--scan-cve`, `--fix-cve`).
+
+Built for the **golden-image workflow**: harden a blank server template, bake it
+into your base image, then layer applications on top.
 
 ---
 
 ## Features
 
-- **`--install`** — Automatically installs OpenSCAP and SCAP content for the detected distro; downloads from GitHub for distros with outdated repos (e.g. Ubuntu 24.04)
-- **`--uninstall`** — Removes OpenSCAP + SCAP packages installed by `--install`
-- **`--apply`** — Applies hardening; takes a backup first, then shows before/after score
-- **`--unapply`** — Reverts hardening changes from the latest backup
-- **`--scan`** — Compliance scan with CIS/ANSSI/STIG profile, generates HTML/JSON report
-- **`--dry-run`** — Shows failing rules grouped by severity without touching the system
-- **`--level`** — Picks the hardening level: `1` = CIS Level 1 (basic), `2` = CIS Level 2 (strict, default)
-- **Exclusions** — Skip specific rules, services, or paths
-- **Hooks** — Run custom scripts before/after hardening and on rollback
-- **XCCDF Tailoring** — Exclusion rules are automatically converted to a tailoring file
+### Compliance hardening
+- **`--scan`** — Compliance scan (CIS/ANSSI/STIG), HTML/JSON report + score
+- **`--apply`** — Apply hardening; backs up first, then shows before/after score
+- **`--unapply`** — Revert hardening to the exact pre-apply state (configs **and**
+  packages the hardening removed; keeps OpenSCAP and any apps it added)
+- **`--dry-run`** — Show failing rules by severity without changing anything
+- **`--level 1|2`** — CIS Level 1 (basic) or Level 2 (strict, default)
+
+### Vulnerability management (CVE)
+- **`--scan-cve`** — Scan installed packages for **known CVEs** using the vendor
+  OVAL feed (e.g. Ubuntu USN); severity-grouped summary + HTML report
+- **`--fix-cve`** — Install **only** the available security updates, then verify
+
+### Safety & automation
+- **`--deadman <min>` / `--confirm`** — Dead-man switch: auto-revert after N minutes
+  unless you confirm — makes **remote** hardening safe against SSH lockout
+- **`--yes`** — Non-interactive (CI / unattended runs)
+- **`--min-score <N>`** — Exit non-zero if compliance score is below N (CI gate)
+- **Running-service protection** — Detects active services (NFS/SMB, **Apache/nginx**)
+  and offers to exclude the rules that would remove/disable them
+- **Setup** — `--install` (OpenSCAP + SCAP content) / `--uninstall` (revert, then remove)
+
+### Built-in
+- **Exclusions** (rules / services / paths), **hooks** (pre/post/rollback),
+  **XCCDF tailoring** auto-generated from the profile
 
 ---
 
@@ -114,14 +137,41 @@ sudo ./linuxharden.sh --scan
 # Generate HTML + JSON report
 sudo ./linuxharden.sh --scan --format both
 
-# Remove OpenSCAP packages entirely
-sudo ./linuxharden.sh --uninstall
+# Scan installed packages for known CVEs (OVAL feed)
+sudo ./linuxharden.sh --scan-cve
 
-# Scan with a specific profile ID
-sudo ./linuxharden.sh --scan --profile xccdf_org.ssgproject.content_profile_cis_level2_server
+# Install available security updates, then re-scan to verify
+sudo ./linuxharden.sh --fix-cve
+sudo ./linuxharden.sh --scan-cve
+
+# Remove OpenSCAP packages entirely (reverts hardening first)
+sudo ./linuxharden.sh --uninstall
 
 # Use a local .yml profile
 sudo ./linuxharden.sh --scan --conf ./profiles/ubuntu-22.04.yml
+```
+
+### Safe remote hardening (dead-man switch)
+
+When hardening a box you reach over SSH, arm the dead-man switch so it reverts
+itself if the changes lock you out:
+
+```bash
+# Apply, then auto-revert in 10 min unless you confirm you still have access
+sudo ./linuxharden.sh --apply --deadman 10
+
+# Still logged in? Keep the changes and cancel the auto-revert:
+sudo ./linuxharden.sh --confirm
+```
+
+### Automation / CI
+
+```bash
+# Unattended apply (no prompts) — e.g. in a Packer/cloud-init build
+sudo ./linuxharden.sh --apply --level 2 --yes
+
+# Fail the pipeline if compliance drops below a threshold
+sudo ./linuxharden.sh --scan --min-score 90 || echo "below baseline — blocking deploy"
 ```
 
 ---
@@ -131,14 +181,19 @@ sudo ./linuxharden.sh --scan --conf ./profiles/ubuntu-22.04.yml
 | Parameter | Description |
 |-----------|-------------|
 | `--install` | Installs OpenSCAP + SCAP content for the detected distro |
-| `--uninstall` | Removes OpenSCAP + SCAP packages |
+| `--uninstall` | Reverts hardening, then removes OpenSCAP + SCAP packages |
 | `--apply` | Applies hardening (backup → apply → verify) |
-| `--unapply` | Reverts hardening settings from the latest backup |
+| `--unapply` | Reverts hardening to the pre-apply state (keeps OpenSCAP installed) |
 | `--scan` | Compliance scan, generates report |
+| `--scan-cve` | Scans installed packages for known CVEs via the vendor OVAL feed |
+| `--fix-cve` | Installs only the available security updates |
 | `--dry-run` | Shows failing rules grouped by severity, does not apply (implies `--apply`) |
 | `--level <1\|2>` | Hardening level: `1` = CIS Level 1 (basic), `2` = CIS Level 2 (strict, default) |
 | `--format <type>` | `html` \| `json` \| `both` (default: html) |
-| `--profile <id>` | SCAP profile ID override |
+| `--deadman <min>` | With `--apply`: auto-revert after `<min>` minutes unless `--confirm` |
+| `--confirm` | Cancel a pending dead-man auto-revert (keep the hardening) |
+| `--yes` | Skip confirmation prompts (non-interactive / CI) |
+| `--min-score <N>` | Exit non-zero if the `--scan` score is below N (CI gate) |
 | `--conf <file>` | Use a local .yml profile file |
 
 ---
@@ -158,6 +213,8 @@ packages:
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml
+  # Vendor OVAL feed for --scan-cve (Ubuntu USN shown; .bz2/.gz auto-decompressed)
+  oval_url: https://security-metadata.canonical.com/oval/com.ubuntu.jammy.usn.oval.xml.bz2
   profiles:
     production:  xccdf_org.ssgproject.content_profile_cis_level2_server  # --level 2
     development: xccdf_org.ssgproject.content_profile_cis_level1_server  # --level 1
@@ -183,21 +240,33 @@ hooks:
 
 ---
 
-## Backup
+## Backup & rollback
 
-`--apply` always takes a backup under `/var/lib/linuxharden/<date>/` before making any changes (`--unapply` restores from this backup):
+`--apply` always takes a backup under `/var/lib/linuxharden/<date>/` before making
+any changes:
 
 ```
 /var/lib/linuxharden/
 ├── 20260524_153000/
-│   ├── configs.tar.gz          # All config directories
-│   ├── services_enabled.txt    # List of active services
+│   ├── configs.tar.gz          # All backed-up config directories
+│   ├── services_enabled.txt    # Enabled services at backup time
+│   ├── packages.txt            # Installed packages at backup time
 │   ├── manifest.conf           # Metadata (distro, profile, hook info)
 │   ├── profile.yml             # Copy of the profile at that time
 │   ├── pre_hardening.arf       # Scan before applying
 │   └── post_hardening.arf      # Scan after applying
-└── latest -> 20260524_153000/  # Symlink (--uninstall looks here)
+└── latest -> 20260524_153000/  # Symlink used by --unapply / --uninstall
 ```
+
+`--unapply` restores the system to its **exact** pre-apply state:
+
+- Config files are restored *exactly* — files the hardening **created** in a
+  backed-up directory are removed (a plain `tar x` would leave them behind).
+- Packages the hardening **removed** are reinstalled.
+- Service enable/disable state is restored (masked units are unmasked first).
+- Packages the hardening **added** and OpenSCAP itself are **kept** — `--unapply`
+  reverts settings, it does not uninstall applications. Use `--uninstall` to
+  revert *and* remove OpenSCAP.
 
 ---
 
@@ -210,6 +279,39 @@ Saved to the `./reports/` directory:
 | `scan_<date>.html` | Visual HTML report (oscap-report) |
 | `scan_<date>.arf` | Raw ARF/XML output |
 | `scan_<date>.json` | Summary: pass/fail counts, score, failed rule list |
+| `cve_<date>.html` | CVE/OVAL report from `--scan-cve` |
+
+---
+
+## CVE / Vulnerability Scanning
+
+Compliance hardening reduces attack surface, but it doesn't tell you which
+installed packages have **known, published vulnerabilities**. `--scan-cve` covers
+that second layer using the same OpenSCAP engine with the vendor's OVAL feed:
+
+```bash
+sudo ./linuxharden.sh --scan-cve
+```
+
+```
+  ┌─ CVE Scan Summary ───────────────────────────┐
+  │  Vulnerable advisories : 8                    │
+  │  Distinct CVEs         : 27                   │
+  └──────────────────────────────────────────────┘
+  6 Medium  ·  2 Low
+
+  Top advisories:
+    Medium    USN-6718-3 -- curl vulnerabilities
+    ...
+```
+
+- The OVAL feed (`scap.oval_url` in the profile) is downloaded, decompressed with
+  Python (no `bzip2`/`gzip` binary needed), and cached for 24h.
+- `--fix-cve` then installs only the available **security** updates; re-run
+  `--scan-cve` to confirm they're cleared.
+
+> Pair this with scheduled runs to catch the steady stream of new CVEs, and use
+> `--min-score` / exit codes to gate deployments in CI.
 
 ---
 
@@ -217,8 +319,9 @@ Saved to the `./reports/` directory:
 
 > **Root privileges required.** The script must be run with `sudo`.
 
-- `--apply` may modify SSH settings and system services.
+- `--apply` may modify SSH settings and system services. When hardening over SSH,
+  use **`--apply --deadman <min>`** so the box reverts itself if you get locked out.
 - A **reboot is recommended** after `--unapply` for a complete rollback.
-- `--uninstall` removes packages only; run `--unapply` first if you also want to revert hardening settings.
+- `--uninstall` reverts hardening **first**, then removes OpenSCAP packages.
 - Arch Linux has no SSG support; basic `sysctl` + SSH hardening is applied instead.
-- `--dry-run` writes nothing to the system and is safe to use.
+- `--dry-run` and `--scan` / `--scan-cve` write nothing to the system and are safe to use.
