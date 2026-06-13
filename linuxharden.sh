@@ -381,10 +381,30 @@ detect_active_services() {
         rules_to_add+=("xccdf_org.ssgproject.content_rule_service_smb_disabled")
     fi
 
+    # Web server: Apache (apache2 on Debian/Ubuntu, httpd on RHEL) — the CIS
+    # rules below would remove the package / disable the service, breaking a
+    # live web server, so protect it when it is actually running.
+    if systemctl is-active --quiet apache2 2>/dev/null || \
+       systemctl is-active --quiet httpd 2>/dev/null; then
+        detected+=("Apache (web sunucusu)")
+        rules_to_add+=(
+            "xccdf_org.ssgproject.content_rule_service_httpd_disabled"
+            "xccdf_org.ssgproject.content_rule_package_httpd_removed"
+        )
+    fi
+
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        detected+=("nginx (web sunucusu)")
+        rules_to_add+=(
+            "xccdf_org.ssgproject.content_rule_service_nginx_disabled"
+            "xccdf_org.ssgproject.content_rule_package_nginx_removed"
+        )
+    fi
+
     [[ ${#detected[@]} -eq 0 ]] && return
 
     echo ""
-    log_warn "Aktif ağ paylaşım servisleri tespit edildi:"
+    log_warn "Aktif servisler tespit edildi:"
     for svc in "${detected[@]}"; do
         echo "    • $svc"
     done
@@ -400,7 +420,7 @@ detect_active_services() {
             h|n|no|hayır) add_exclusions=false ;;
         esac
     else
-        log_warn "Etkileşimsiz mod — NFS/SMB kuralları otomatik olarak hariç tutuldu."
+        log_warn "Etkileşimsiz mod — tespit edilen servis kuralları otomatik hariç tutuldu."
     fi
 
     if [[ "$add_exclusions" == true ]]; then
@@ -408,7 +428,7 @@ detect_active_services() {
             [[ "$EXCLUSION_RULES" != *"$rule"* ]] && \
                 EXCLUSION_RULES="${EXCLUSION_RULES:+$EXCLUSION_RULES }$rule"
         done
-        log_info "NFS/SMB kuralları hariç tutuldu (${#rules_to_add[@]} kural)."
+        log_info "Aktif servis kuralları hariç tutuldu (${#rules_to_add[@]} kural)."
     else
         log_warn "Servis koruma atlandı — ilgili kurallar uygulanacak."
     fi
