@@ -16,6 +16,8 @@ MODE="" REPORT_FORMAT="html" LOCAL_CONF="" CONF_FILE=""
 DRY_RUN=false
 ASSUME_YES=false        # --yes / --non-interactive: skip confirmation prompts
 MIN_SCORE=""            # --min-score N: exit non-zero if scan score < N
+DEADMAN_MIN=""          # --deadman N: auto-revert N min after apply unless --confirm
+readonly DEADMAN_UNIT="hardenix-deadman"
 # ENV_PROFILE is the internal key into scap.profiles; it is driven solely by --level.
 # Default: level 2 (strict). --level 1 switches to the basic baseline.
 ENV_PROFILE="production"
@@ -93,6 +95,8 @@ usage() {
     echo "  --format <type>     Report format: html | json | both  (default: html)"
     echo "  --yes               Skip confirmation prompts (non-interactive / CI)"
     echo "  --min-score <N>     Exit non-zero if --scan score is below N (CI gate)"
+    echo "  --deadman <min>     With --apply: auto-revert after <min> unless --confirm"
+    echo "  --confirm           Cancel a pending dead-man auto-revert (keep hardening)"
     echo "  --conf <file>       Use a local .yml instead of downloading"
     echo "  --help              Show this help"
     echo ""
@@ -142,6 +146,8 @@ parse_args() {
             --apply)     MODE="apply" ;;
             --unapply)   MODE="unapply" ;;
             --dry-run)   DRY_RUN=true ;;
+            --confirm)   MODE="confirm" ;;
+            --deadman)   shift; DEADMAN_MIN="${1:-}" ;;
             --yes|--non-interactive) ASSUME_YES=true ;;
             --min-score) shift; MIN_SCORE="${1:-}" ;;
             --level)     shift; SEC_LEVEL="${1:-}" ;;
@@ -163,6 +169,15 @@ parse_args() {
 
     if [[ -n "$MIN_SCORE" && ! "$MIN_SCORE" =~ ^[0-9]+$ ]]; then
         log_error "Invalid --min-score: $MIN_SCORE (use an integer 0-100)"; exit 1
+    fi
+
+    if [[ -n "$DEADMAN_MIN" ]]; then
+        if [[ ! "$DEADMAN_MIN" =~ ^[0-9]+$ || "$DEADMAN_MIN" -lt 1 ]]; then
+            log_error "Invalid --deadman: $DEADMAN_MIN (use a positive integer, minutes)"; exit 1
+        fi
+        if [[ "$MODE" != "apply" ]]; then
+            log_error "--deadman only applies to --apply."; exit 1
+        fi
     fi
 
     # --level picks the strict vs. basic baseline and maps onto the scap.profiles keys.
@@ -1406,6 +1421,55 @@ run_apply() {
     log_info "Backup at: $backup_dir"
     log_warn "A reboot may be required for some changes to take effect."
     echo -e "  To revert: ${BOLD}sudo $(basename "$0") --unapply${NC}"
+
+    [[ -n "$DEADMAN_MIN" ]] && arm_deadman "$DEADMAN_MIN"
+}
+
+# ── Dead-man Switch ─────────────────────────────────────────────────────────────
+
+# Schedule an automatic --unapply N minutes from now (transient systemd timer).
+# Lets you harden a remote box safely: if hardening locks you out, the box
+# reverts itself; if you can still log in, run --confirm to keep the changes.
+arm_deadman() {
+    local mins="$1"
+    local script; script="$(readlink -f "$0")"
+
+    if ! command -v systemd-run &>/dev/null; then
+        log_warn "systemd-run not available — dead-man switch not armed."
+        return 0
+    fi
+
+    # Clear any stale prior timer first.
+    systemctl stop "${DEADMAN_UNIT}.timer" 2>/dev/null || true
+    systemctl reset-failed "${DEADMAN_UNIT}.service" 2>/dev/null || true
+
+    if systemd-run --quiet --unit="$DEADMAN_UNIT" --on-active="${mins}min" \
+        /bin/bash "$script" --unapply --yes >/dev/null 2>&1; then
+        echo ""
+        log_warn "DEAD-MAN SWITCH ARMED — system auto-reverts in ${mins} minute(s)."
+        echo -e "  If you can still log in, keep the changes with:"
+        echo -e "    ${BOLD}sudo $(basename "$0") --confirm${NC}"
+    else
+        log_warn "Failed to arm dead-man switch."
+    fi
+}
+
+run_confirm() {
+    log_section "Confirm — Cancel Dead-man Switch"
+
+    local armed=false
+    systemctl list-timers --all 2>/dev/null | grep -q "$DEADMAN_UNIT" && armed=true
+    systemctl is-active "${DEADMAN_UNIT}.timer" &>/dev/null && armed=true
+
+    systemctl stop "${DEADMAN_UNIT}.timer" 2>/dev/null || true
+    systemctl stop "${DEADMAN_UNIT}.service" 2>/dev/null || true
+    systemctl reset-failed "${DEADMAN_UNIT}.service" 2>/dev/null || true
+
+    if [[ "$armed" == true ]]; then
+        log_info "Dead-man switch cancelled — hardening will stay in place."
+    else
+        log_warn "No pending dead-man switch found (nothing to cancel)."
+    fi
 }
 
 # ── Unapply ───────────────────────────────────────────────────────────────────
@@ -1697,6 +1761,11 @@ main() {
 
     if [[ "$MODE" == "install" ]]; then
         run_install_deps
+        return
+    fi
+
+    if [[ "$MODE" == "confirm" ]]; then
+        run_confirm
         return
     fi
 
