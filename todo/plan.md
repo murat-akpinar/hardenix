@@ -46,6 +46,11 @@ en sonda topluca test etmek zorunda kalmayız.
 - ✅ **FAZ 5** — `--scan-cve` (OVAL/USN CVE taraması). Test: temiz kutu 0 CVE
   (apt ile uyumlu); curl açıklı sürüme düşürülünce 8 USN / 27 CVE yakalandı,
   severity'ye göre gruplu + HTML rapor. python3 ile bz2 decompress (bzip2 gerekmez).
+- ✅ **FAZ 6** — `--fix-cve` (güvenlik yaması). Test: curl düşür → fix-cve 2 paketi
+  güncelledi → scan-cve 0. Döngü tam: scan→fix→rescan.
+- ✅ **FAZ 3** — dead-man's switch (`--apply --deadman <dk>` + `--confirm`). Test:
+  deadman 1 → 1 dk sonra otomatik geri alındı (cramfs yok, 67%); deadman 5 + confirm
+  → timer iptal, hardening kaldı. Uzaktan hardening artık güvenli.
 - Bulgu (mask): Boş sistemi hardenleyip **sonra** nginx/apache kurarsan servis
   **maskeli gelmez** (active/enabled/loaded). SSG yalnızca paket apply anında
   varsa mask yapar. → "önce hardenle, sonra kur" golden-image akışı güvenli.
