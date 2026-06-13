@@ -14,6 +14,10 @@ BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
 # Runtime flags
 MODE="" REPORT_FORMAT="html" LOCAL_CONF="" CONF_FILE=""
 DRY_RUN=false
+ASSUME_YES=false        # --yes / --non-interactive: skip confirmation prompts
+MIN_SCORE=""            # --min-score N: exit non-zero if scan score < N
+DEADMAN_MIN=""          # --deadman N: auto-revert N min after apply unless --confirm
+readonly DEADMAN_UNIT="hardenix-deadman"
 # ENV_PROFILE is the internal key into scap.profiles; it is driven solely by --level.
 # Default: level 2 (strict). --level 1 switches to the basic baseline.
 ENV_PROFILE="production"
@@ -21,6 +25,7 @@ SEC_LEVEL="2" SEC_LEVEL_LABEL="CIS Level 2 (strict)"
 
 # Populated by parse_conf
 PKG_MANAGER="" OSCAP_PKG="" SSG_PKG="" XML_PATH="" PROFILE_ID="" ARCH_FALLBACK="false"
+OVAL_URL=""             # scap.oval_url: vendor CVE/OVAL feed for --scan-cve
 BACKUP_DIRS="" EXCLUSION_RULES="" EXCLUSION_SERVICES="" EXCLUSION_PATHS=""
 HOOK_PRE="" HOOK_POST="" HOOK_ROLLBACK=""
 
@@ -79,6 +84,8 @@ usage() {
     echo "  --install           Install OpenSCAP + SCAP content for this distro"
     echo "  --uninstall         Revert hardening, then remove OpenSCAP + SCAP packages"
     echo "  --scan              Scan system compliance and generate report"
+    echo "  --scan-cve          Scan installed packages for known CVEs (OVAL feed)"
+    echo "  --fix-cve           Install available security updates only"
     echo "  --apply             Apply hardening (creates backup, then verifies)"
     echo "  --unapply           Revert hardening settings (keeps OpenSCAP installed)"
     echo ""
@@ -86,6 +93,10 @@ usage() {
     echo "  --dry-run           Preview what would change without applying (implies --apply)"
     echo "  --level <1|2>       Hardening level: 1 = CIS Level 1 (basic), 2 = CIS Level 2 (strict, default)"
     echo "  --format <type>     Report format: html | json | both  (default: html)"
+    echo "  --yes               Skip confirmation prompts (non-interactive / CI)"
+    echo "  --min-score <N>     Exit non-zero if --scan score is below N (CI gate)"
+    echo "  --deadman <min>     With --apply: auto-revert after <min> unless --confirm"
+    echo "  --confirm           Cancel a pending dead-man auto-revert (keep hardening)"
     echo "  --conf <file>       Use a local .yml instead of downloading"
     echo "  --help              Show this help"
     echo ""
@@ -97,12 +108,27 @@ usage() {
     echo -e "${BOLD}Examples:${NC}"
     echo "  sudo $(basename "$0") --install"
     echo "  sudo $(basename "$0") --scan"
+    echo "  sudo $(basename "$0") --scan-cve              # known-CVE scan (OVAL)"
+    echo "  sudo $(basename "$0") --fix-cve               # apply security updates"
     echo "  sudo $(basename "$0") --dry-run"
     echo "  sudo $(basename "$0") --apply --level 1     # CIS Level 1 (basic)"
     echo "  sudo $(basename "$0") --apply --level 2     # CIS Level 2 (strict)"
     echo "  sudo $(basename "$0") --unapply"
     echo "  sudo $(basename "$0") --uninstall"
     exit 0
+}
+
+# Prompt for confirmation unless --yes was given. Returns 0 to proceed.
+# Usage: confirm "Question text" || { log_warn "Aborted."; exit 0; }
+confirm() {
+    local prompt="$1"
+    if [[ "$ASSUME_YES" == true ]]; then
+        log_info "${prompt} [--yes]"
+        return 0
+    fi
+    echo -n "  ${prompt} [y/N] "
+    local answer; read -r answer
+    [[ "${answer,,}" == "y" ]]
 }
 
 # ── Argument Parsing ──────────────────────────────────────────────────────────
@@ -113,11 +139,17 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --scan)      MODE="scan" ;;
+            --scan-cve)  MODE="scan_cve" ;;
+            --fix-cve)   MODE="fix_cve" ;;
             --install)   MODE="install" ;;
             --uninstall) MODE="uninstall" ;;
             --apply)     MODE="apply" ;;
             --unapply)   MODE="unapply" ;;
             --dry-run)   DRY_RUN=true ;;
+            --confirm)   MODE="confirm" ;;
+            --deadman)   shift; DEADMAN_MIN="${1:-}" ;;
+            --yes|--non-interactive) ASSUME_YES=true ;;
+            --min-score) shift; MIN_SCORE="${1:-}" ;;
             --level)     shift; SEC_LEVEL="${1:-}" ;;
             --format)    shift; REPORT_FORMAT="${1:-html}" ;;
             --conf)      shift; LOCAL_CONF="${1:-}" ;;
@@ -134,6 +166,19 @@ parse_args() {
         html|json|both) ;;
         *) log_error "Invalid --format: $REPORT_FORMAT (use: html | json | both)"; exit 1 ;;
     esac
+
+    if [[ -n "$MIN_SCORE" && ! "$MIN_SCORE" =~ ^[0-9]+$ ]]; then
+        log_error "Invalid --min-score: $MIN_SCORE (use an integer 0-100)"; exit 1
+    fi
+
+    if [[ -n "$DEADMAN_MIN" ]]; then
+        if [[ ! "$DEADMAN_MIN" =~ ^[0-9]+$ || "$DEADMAN_MIN" -lt 1 ]]; then
+            log_error "Invalid --deadman: $DEADMAN_MIN (use a positive integer, minutes)"; exit 1
+        fi
+        if [[ "$MODE" != "apply" ]]; then
+            log_error "--deadman only applies to --apply."; exit 1
+        fi
+    fi
 
     # --level picks the strict vs. basic baseline and maps onto the scap.profiles keys.
     case "$SEC_LEVEL" in
@@ -258,6 +303,7 @@ print(f'PKG_MANAGER={q(pkgs.get("manager",""))}')
 print(f'OSCAP_PKG={q(pkgs.get("oscap",""))}')
 print(f'SSG_PKG={q(pkgs.get("ssg",""))}')
 print(f'XML_PATH={q(scap.get("xml_path",""))}')
+print(f'OVAL_URL={q(scap.get("oval_url",""))}')
 print(f'PROFILE_ID={q(profile_id)}')
 print(f'ARCH_FALLBACK={q(str(meta.get("arch_fallback", False)).lower())}')
 print(f'BACKUP_DIRS={qlist(bkup.get("config_dirs", []))}')
@@ -381,17 +427,37 @@ detect_active_services() {
         rules_to_add+=("xccdf_org.ssgproject.content_rule_service_smb_disabled")
     fi
 
+    # Web server: Apache (apache2 on Debian/Ubuntu, httpd on RHEL) — the CIS
+    # rules below would remove the package / disable the service, breaking a
+    # live web server, so protect it when it is actually running.
+    if systemctl is-active --quiet apache2 2>/dev/null || \
+       systemctl is-active --quiet httpd 2>/dev/null; then
+        detected+=("Apache (web sunucusu)")
+        rules_to_add+=(
+            "xccdf_org.ssgproject.content_rule_service_httpd_disabled"
+            "xccdf_org.ssgproject.content_rule_package_httpd_removed"
+        )
+    fi
+
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        detected+=("nginx (web sunucusu)")
+        rules_to_add+=(
+            "xccdf_org.ssgproject.content_rule_service_nginx_disabled"
+            "xccdf_org.ssgproject.content_rule_package_nginx_removed"
+        )
+    fi
+
     [[ ${#detected[@]} -eq 0 ]] && return
 
     echo ""
-    log_warn "Aktif ağ paylaşım servisleri tespit edildi:"
+    log_warn "Aktif servisler tespit edildi:"
     for svc in "${detected[@]}"; do
         echo "    • $svc"
     done
     echo ""
 
     local add_exclusions=true
-    if [[ -t 0 ]]; then
+    if [[ -t 0 && "$ASSUME_YES" != true ]]; then
         echo -e "  CIS kuralları bu servisleri kaldırabilir veya devre dışı bırakabilir."
         printf "  İlgili kurallar hariç tutulsun mu? [E/h]: "
         local answer
@@ -400,7 +466,7 @@ detect_active_services() {
             h|n|no|hayır) add_exclusions=false ;;
         esac
     else
-        log_warn "Etkileşimsiz mod — NFS/SMB kuralları otomatik olarak hariç tutuldu."
+        log_warn "Etkileşimsiz mod — tespit edilen servis kuralları otomatik hariç tutuldu."
     fi
 
     if [[ "$add_exclusions" == true ]]; then
@@ -408,7 +474,7 @@ detect_active_services() {
             [[ "$EXCLUSION_RULES" != *"$rule"* ]] && \
                 EXCLUSION_RULES="${EXCLUSION_RULES:+$EXCLUSION_RULES }$rule"
         done
-        log_info "NFS/SMB kuralları hariç tutuldu (${#rules_to_add[@]} kural)."
+        log_info "Aktif servis kuralları hariç tutuldu (${#rules_to_add[@]} kural)."
     else
         log_warn "Servis koruma atlandı — ilgili kurallar uygulanacak."
     fi
@@ -1024,6 +1090,242 @@ run_scan() {
     print_failing_rules "$arf_file"
     echo ""
     print_scan_summary "$arf_file"
+
+    # --min-score: fail (non-zero exit) when compliance is below the threshold.
+    if [[ -n "$MIN_SCORE" ]]; then
+        local score; score=$(get_score "$arf_file")
+        # integer compare (drop any decimals)
+        if (( ${score%.*} < MIN_SCORE )); then
+            log_error "Score ${score}% is below --min-score ${MIN_SCORE}%."
+            exit 2
+        fi
+        log_info "Score ${score}% meets --min-score ${MIN_SCORE}%."
+    fi
+}
+
+# ── CVE / Vulnerability Scan (OVAL) ─────────────────────────────────────────────
+
+# Download the vendor OVAL feed to $2, decompressing .bz2/.gz. Cached for 1 day.
+download_oval_feed() {
+    local url="$1" out="$2"
+    mkdir -p "$(dirname "$out")"
+
+    # Reuse a fresh cached copy (< 24h old) to avoid re-downloading every run.
+    if [[ -f "$out" ]] && find "$out" -mtime -1 2>/dev/null | grep -q .; then
+        log_info "Using cached OVAL feed ($(date -r "$out" '+%Y-%m-%d %H:%M'))"
+        return 0
+    fi
+
+    local tmp; tmp="${out}.download"
+    log_info "Downloading OVAL feed..."
+    if command -v curl &>/dev/null; then
+        curl -fsSL --retry 2 "$url" -o "$tmp" || { log_error "Feed download failed: $url"; return 1; }
+    elif command -v wget &>/dev/null; then
+        wget -q "$url" -O "$tmp" || { log_error "Feed download failed: $url"; return 1; }
+    else
+        log_error "Neither curl nor wget available to fetch the OVAL feed."; return 1
+    fi
+
+    # Decompress via python3 (guaranteed dependency) — no bzip2/gzip binaries needed.
+    case "$url" in
+        *.bz2|*.gz)
+            local mod="bz2"; [[ "$url" == *.gz ]] && mod="gzip"
+            if ! python3 - "$tmp" "$out" "$mod" <<'PYEOF'
+import sys, bz2, gzip
+src, dst, mod = sys.argv[1], sys.argv[2], sys.argv[3]
+op = bz2.open if mod == "bz2" else gzip.open
+with op(src, "rb") as fi, open(dst, "wb") as fo:
+    while (chunk := fi.read(1 << 20)):
+        fo.write(chunk)
+PYEOF
+            then
+                log_error "Failed to decompress feed (corrupt download?)"; return 1
+            fi
+            rm -f "$tmp"
+            ;;
+        *) mv "$tmp" "$out" ;;
+    esac
+    log_info "Feed ready: $out"
+}
+
+# Summarize OVAL results: count vulnerable definitions, group by severity,
+# joining results (true/false) with the feed metadata (severity + CVE refs).
+print_cve_summary() {
+    local results="$1" feed="$2"
+    command -v python3 &>/dev/null || return 0
+
+    python3 - "$results" "$feed" <<'PYEOF'
+import sys, re
+import xml.etree.ElementTree as ET
+
+results_f, feed_f = sys.argv[1], sys.argv[2]
+G='\033[0;32m'; R='\033[0;31m'; Y='\033[1;33m'; C='\033[0;36m'; B='\033[1m'; NC='\033[0m'
+
+def lname(t): return t.rsplit('}', 1)[-1]
+
+# 1) definition_ids that evaluated TRUE (i.e. system is vulnerable)
+vuln = set()
+for ev, el in ET.iterparse(results_f, ('end',)):
+    if lname(el.tag) == 'definition' and el.get('result') == 'true':
+        vuln.add(el.get('definition_id') or el.get('id'))
+    if lname(el.tag) == 'definition':
+        el.clear()
+
+# 2) walk the feed; for each vulnerable definition collect severity + CVEs
+order = ['Critical', 'High', 'Medium', 'Low', 'Negligible', 'Untriaged']
+sev_count = {s: 0 for s in order}
+cves = set()
+rows = []
+for ev, el in ET.iterparse(feed_f, ('end',)):
+    if lname(el.tag) != 'definition':
+        continue
+    did = el.get('id')
+    # Only real vulnerability advisories — skip the 'inventory' (is-OS-installed) def.
+    if did in vuln and el.get('class') == 'patch':
+        sev, title = 'Untriaged', ''
+        for sub in el.iter():
+            ln = lname(sub.tag)
+            if ln == 'severity' and sub.text: sev = sub.text.strip().title()
+            elif ln == 'title' and sub.text and not title: title = sub.text.strip()
+            elif ln == 'cve' and sub.text:
+                m = re.search(r'CVE-\d{4}-\d+', sub.text)
+                if m: cves.add(m.group())
+        if sev not in sev_count: sev_count[sev] = 0
+        sev_count[sev] += 1
+        rows.append((sev, title))
+    el.clear()
+
+total = len(rows)   # patch-class advisories only
+print(f"\n  {B}┌─ CVE Scan Summary {'─'*27}┐{NC}")
+print(f"  │  {'Vulnerable advisories':<21} : {total:<20}│")
+print(f"  │  {'Distinct CVEs':<21} : {len(cves):<20}│")
+print(f"  {B}└{'─'*46}┘{NC}")
+rank = {'Critical':0,'High':1,'Medium':2,'Low':3,'Negligible':4,'Untriaged':5}
+parts = []
+for s in sorted(sev_count, key=lambda x: rank.get(x, 9)):
+    n = sev_count[s]
+    if not n: continue
+    col = R if s in ('Critical','High') else (Y if s=='Medium' else NC)
+    parts.append(f"{col}{n} {s}{NC}")
+if parts:
+    print("  " + "  ·  ".join(parts))
+# show the most severe handful
+top = sorted(rows, key=lambda r: rank.get(r[0], 9))[:10]
+if top:
+    print(f"\n  {B}Top advisories:{NC}")
+    for sev, title in top:
+        col = R if sev in ('Critical','High') else (Y if sev=='Medium' else NC)
+        print(f"    {col}{sev:<9}{NC} {title[:60]}")
+PYEOF
+}
+
+run_scan_cve() {
+    log_section "CVE / Vulnerability Scan (OVAL)"
+
+    if [[ "$ARCH_FALLBACK" == "true" ]]; then
+        log_error "CVE scan is not supported on this distro (no OVAL feed configured)."
+        exit 1
+    fi
+    if [[ -z "$OVAL_URL" ]]; then
+        log_error "No OVAL feed for this profile (set scap.oval_url in the .yml)."
+        exit 1
+    fi
+    if ! command -v oscap &>/dev/null; then
+        log_error "oscap not found — run ${BOLD}--install${NC} first."
+        exit 1
+    fi
+
+    mkdir -p "$REPORT_DIR"
+    local ts; ts=$(date +%Y%m%d_%H%M%S)
+    local feed="${REPORT_DIR}/oval-feed/$(basename "${OVAL_URL%.bz2}")"
+    feed="${feed%.gz}"
+
+    log_info "Feed URL : $OVAL_URL"
+    download_oval_feed "$OVAL_URL" "$feed" || exit 1
+
+    local results="${REPORT_DIR}/cve_${ts}.xml"
+    local report="${REPORT_DIR}/cve_${ts}.html"
+    echo ""
+
+    local pid
+    oscap oval eval --results "$results" --report "$report" "$feed" >/dev/null 2>&1 &
+    pid=$!
+    _spin "$pid" "Evaluating CVEs against installed packages..."
+    wait "$pid" 2>/dev/null || true   # oscap oval eval may exit non-zero
+
+    [[ -f "$results" ]] || { log_error "CVE scan produced no output."; exit 1; }
+    log_info "HTML report: $report"
+
+    print_cve_summary "$results" "$feed"
+}
+
+# ── Security Patching (--fix-cve) ───────────────────────────────────────────────
+
+# List packages with a pending *security* update (per package manager).
+security_updates() {
+    case "$PKG_MANAGER" in
+        apt-get)
+            apt-get -s upgrade 2>/dev/null \
+                | awk '/^Inst/ && /[Ss]ecurity/ {print $2}'
+            ;;
+        dnf|yum)
+            "$PKG_MANAGER" -q updateinfo list security 2>/dev/null \
+                | awk 'NF>=3 {print $NF}' | sort -u
+            ;;
+        zypper)
+            zypper -q list-patches --category security 2>/dev/null \
+                | awk -F'|' 'NR>2 {gsub(/ /,"",$2); if($2) print $2}'
+            ;;
+        pacman) : ;;  # Arch has no security-only channel
+    esac
+}
+
+run_fix_cve() {
+    log_section "Security Patching (--fix-cve)"
+
+    if [[ "$ARCH_FALLBACK" == "true" || "$PKG_MANAGER" == "pacman" ]]; then
+        log_warn "Arch has no security-only update channel."
+        log_info "Use ${BOLD}pacman -Syu${NC} to apply all updates."
+        return
+    fi
+
+    # Refresh metadata so the security list is current.
+    log_info "Refreshing package metadata..."
+    case "$PKG_MANAGER" in
+        apt-get) apt-get update -qq 2>/dev/null || log_warn "apt-get update failed (offline?)" ;;
+        dnf|yum) "$PKG_MANAGER" -q makecache 2>/dev/null || true ;;
+        zypper)  zypper -q refresh 2>/dev/null || true ;;
+    esac
+
+    local pkgs; mapfile -t pkgs < <(security_updates)
+    if [[ ${#pkgs[@]} -eq 0 ]]; then
+        log_info "No pending security updates — system is up to date."
+        return
+    fi
+
+    log_warn "${#pkgs[@]} package(s) have a security update available:"
+    printf '    • %s\n' "${pkgs[@]}" | head -40
+    [[ ${#pkgs[@]} -gt 40 ]] && echo "    … (+$(( ${#pkgs[@]} - 40 )) more)"
+    echo ""
+    confirm "Install these security updates now?" || { log_warn "Aborted."; exit 0; }
+
+    echo ""
+    local rc=0
+    case "$PKG_MANAGER" in
+        apt-get)
+            # shellcheck disable=SC2068
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade ${pkgs[@]} || rc=$? ;;
+        dnf|yum) "$PKG_MANAGER" upgrade -y --security || rc=$? ;;
+        zypper)  zypper patch -y --category security || rc=$? ;;
+    esac
+
+    echo ""
+    if [[ $rc -ne 0 ]]; then
+        log_error "Security update failed (exit $rc)."
+        exit "$rc"
+    fi
+    log_info "Security updates applied."
+    log_info "Verify with: ${BOLD}$(basename "$0") --scan-cve${NC}"
 }
 
 # ── Apply ─────────────────────────────────────────────────────────────────────
@@ -1064,9 +1366,7 @@ run_apply() {
     log_section "Applying Hardening"
     echo -e "  ${YELLOW}${BOLD}WARNING:${NC} System configuration will be modified."
     echo -e "  Backup → ${BOLD}${BACKUP_BASE}/${NC}"
-    echo -n "  Continue? [y/N] "
-    read -r confirm
-    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
+    confirm "Continue?" || { log_warn "Aborted."; exit 0; }
 
     run_hook "$HOOK_PRE" "pre_hardening"
 
@@ -1121,6 +1421,55 @@ run_apply() {
     log_info "Backup at: $backup_dir"
     log_warn "A reboot may be required for some changes to take effect."
     echo -e "  To revert: ${BOLD}sudo $(basename "$0") --unapply${NC}"
+
+    [[ -n "$DEADMAN_MIN" ]] && arm_deadman "$DEADMAN_MIN"
+}
+
+# ── Dead-man Switch ─────────────────────────────────────────────────────────────
+
+# Schedule an automatic --unapply N minutes from now (transient systemd timer).
+# Lets you harden a remote box safely: if hardening locks you out, the box
+# reverts itself; if you can still log in, run --confirm to keep the changes.
+arm_deadman() {
+    local mins="$1"
+    local script; script="$(readlink -f "$0")"
+
+    if ! command -v systemd-run &>/dev/null; then
+        log_warn "systemd-run not available — dead-man switch not armed."
+        return 0
+    fi
+
+    # Clear any stale prior timer first.
+    systemctl stop "${DEADMAN_UNIT}.timer" 2>/dev/null || true
+    systemctl reset-failed "${DEADMAN_UNIT}.service" 2>/dev/null || true
+
+    if systemd-run --quiet --unit="$DEADMAN_UNIT" --on-active="${mins}min" \
+        /bin/bash "$script" --unapply --yes >/dev/null 2>&1; then
+        echo ""
+        log_warn "DEAD-MAN SWITCH ARMED — system auto-reverts in ${mins} minute(s)."
+        echo -e "  If you can still log in, keep the changes with:"
+        echo -e "    ${BOLD}sudo $(basename "$0") --confirm${NC}"
+    else
+        log_warn "Failed to arm dead-man switch."
+    fi
+}
+
+run_confirm() {
+    log_section "Confirm — Cancel Dead-man Switch"
+
+    local armed=false
+    systemctl list-timers --all 2>/dev/null | grep -q "$DEADMAN_UNIT" && armed=true
+    systemctl is-active "${DEADMAN_UNIT}.timer" &>/dev/null && armed=true
+
+    systemctl stop "${DEADMAN_UNIT}.timer" 2>/dev/null || true
+    systemctl stop "${DEADMAN_UNIT}.service" 2>/dev/null || true
+    systemctl reset-failed "${DEADMAN_UNIT}.service" 2>/dev/null || true
+
+    if [[ "$armed" == true ]]; then
+        log_info "Dead-man switch cancelled — hardening will stay in place."
+    else
+        log_warn "No pending dead-man switch found (nothing to cancel)."
+    fi
 }
 
 # ── Unapply ───────────────────────────────────────────────────────────────────
@@ -1246,9 +1595,7 @@ run_unapply() {
 
     local ts; ts=$(awk -F'=' '/^timestamp/{print $2}' "${backup_dir}/manifest.conf")
     log_info "Restoring from: $ts"
-    echo -n "  Continue? [y/N] "
-    read -r confirm
-    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
+    confirm "Continue?" || { log_warn "Aborted."; exit 0; }
 
     revert_hardening "$backup_dir"
 
@@ -1264,9 +1611,7 @@ run_uninstall() {
     echo -e "  OpenSCAP and SCAP content packages will be removed."
     echo -e "  You will no longer be able to run ${BOLD}--scan${NC} or ${BOLD}--apply${NC}."
     echo ""
-    echo -n "  Continue? [y/N] "
-    read -r confirm
-    if [[ "${confirm,,}" != "y" ]]; then log_warn "Aborted."; exit 0; fi
+    confirm "Continue?" || { log_warn "Aborted."; exit 0; }
 
     # Step 1: revert hardening settings (if a backup exists).
     local backup_dir
@@ -1419,10 +1764,17 @@ main() {
         return
     fi
 
+    if [[ "$MODE" == "confirm" ]]; then
+        run_confirm
+        return
+    fi
+
     check_pyyaml
     parse_conf
 
-    if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" ]]; then
+    # CVE scan needs only oscap + the OVAL feed — skip the XCCDF/profile prep.
+    if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" \
+          && "$MODE" != "scan_cve" && "$MODE" != "fix_cve" ]]; then
         detect_active_services
         check_dependencies
         validate_profile
@@ -1431,6 +1783,8 @@ main() {
 
     case "$MODE" in
         scan)          run_scan ;;
+        scan_cve)      run_scan_cve ;;
+        fix_cve)       run_fix_cve ;;
         apply)         run_apply ;;
         unapply)       run_unapply ;;
         uninstall)     run_uninstall ;;
