@@ -34,7 +34,6 @@ exclusions:
   rules:    []
   services: []
   paths:    []
-  users:    []
 
 hooks:
   pre_hardening:  ""

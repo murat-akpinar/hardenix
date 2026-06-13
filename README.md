@@ -22,6 +22,7 @@ OpenSCAP-based Linux hardening tool. Downloads a YAML profile based on the distr
 - **`--unapply`** — Reverts hardening changes from the latest backup
 - **`--scan`** — Compliance scan with CIS/ANSSI/STIG profile, generates HTML/JSON report
 - **`--dry-run`** — Shows failing rules grouped by severity without touching the system
+- **`--level`** — Picks the hardening level directly: `1` = CIS Level 1 (basic), `2` = CIS Level 2 (strict)
 - **`--env`** — Selects `production` / `staging` / `development` profile
 - **Exclusions** — Skip specific rules, services, or paths
 - **Hooks** — Run custom scripts before/after hardening and on rollback
@@ -31,17 +32,41 @@ OpenSCAP-based Linux hardening tool. Downloads a YAML profile based on the distr
 
 ## Supported Distributions
 
-| Distribution | Profile (production) | Profile (development) | Engine |
-|--------------|----------------------|-----------------------|--------|
+`--level 2` (default) selects the strict baseline; `--level 1` selects the basic one.
+
+| Distribution | Level 2 — strict (default) | Level 1 — basic (`--level 1`) | Engine |
+|--------------|----------------------------|-------------------------------|--------|
 | Ubuntu 22.04 | CIS Level 2 Server | CIS Level 1 Server | SSG |
 | Ubuntu 24.04 | CIS Level 2 Server | CIS Level 1 Server | SSG |
 | Debian 12 | ANSSI BP-028 Enhanced | Standard | SSG |
 | RHEL 9 | CIS Level 2 Server | CIS Level 1 Server | SSG |
-| Rocky Linux 9 | CIS Level 1 Server | Standard | SSG |
-| AlmaLinux 9 | CIS Level 1 Server | Standard | SSG |
+| Rocky Linux 9 | CIS Level 2 Server | CIS Level 1 Server | SSG |
+| AlmaLinux 9 | CIS Level 2 Server | CIS Level 1 Server | SSG |
 | Fedora 40 | OSPP | Standard | SSG |
 | openSUSE Leap 15 | CIS Level 2 Server | CIS Level 1 Server | SSG |
 | Arch Linux | sysctl + SSH hardening | — | Bash fallback |
+
+> Debian and Fedora ship no CIS profile in SSG, so they use ANSSI BP28 / OSPP.
+> Here `--level 2` means "strict baseline" and `--level 1` means "light baseline".
+
+---
+
+## Hardening Levels
+
+| | **Level 1** (`--level 1`) | **Level 2** (`--level 2`, default) |
+|---|---|---|
+| Goal | Basic security for everyday use | High security / regulated environments |
+| Impact | Practical, low risk of breakage | May restrict some functionality |
+| Examples | Password policy, file permissions | Mandatory auditing (auditd), mount restrictions, extra service removal |
+| Typical user | Most servers | Finance, government, sensitive data |
+
+```bash
+sudo ./linuxharden.sh --apply --level 1    # basic
+sudo ./linuxharden.sh --apply --level 2    # strict (default)
+```
+
+> `--level` is a friendly alias over the profile selection and takes precedence over `--env`.
+> Running `--apply` with no level defaults to Level 2 (strict).
 
 ---
 
@@ -77,8 +102,9 @@ sudo ./linuxharden.sh --dry-run
 # 3. Apply hardening (backup → apply → verify)
 sudo ./linuxharden.sh --apply
 
-# Use a lighter profile for development environments
-sudo ./linuxharden.sh --apply --env development
+# Choose the hardening level explicitly
+sudo ./linuxharden.sh --apply --level 1     # CIS Level 1 (basic)
+sudo ./linuxharden.sh --apply --level 2     # CIS Level 2 (strict)
 
 # Revert hardening (restores configs from backup)
 sudo ./linuxharden.sh --unapply
@@ -111,6 +137,7 @@ sudo ./linuxharden.sh --scan --conf ./profiles/ubuntu-22.04.yml
 | `--unapply` | Reverts hardening settings from the latest backup |
 | `--scan` | Compliance scan, generates report |
 | `--dry-run` | Shows failing rules grouped by severity, does not apply (implies `--apply`) |
+| `--level <1\|2>` | Hardening level: `1` = CIS Level 1 (basic), `2` = CIS Level 2 (strict, default) |
 | `--env <profile>` | `production` \| `staging` \| `development` (default: production) |
 | `--format <type>` | `html` \| `json` \| `both` (default: html) |
 | `--profile <id>` | SCAP profile ID override |

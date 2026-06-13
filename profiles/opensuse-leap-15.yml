@@ -32,10 +32,17 @@ backup:
     - /etc/apparmor.d
 
 exclusions:
-  rules:    []
+  rules:
+    # NFS sunucusu çalışıyorsa aşağıdaki satırları uncomment edin:
+    # - xccdf_org.ssgproject.content_rule_package_autofs_removed
+    # - xccdf_org.ssgproject.content_rule_service_autofs_disabled
+    # - xccdf_org.ssgproject.content_rule_package_nfs-utils_removed
+    # - xccdf_org.ssgproject.content_rule_package_rpcbind_removed
+    # - xccdf_org.ssgproject.content_rule_service_rpcbind_disabled
+    # - xccdf_org.ssgproject.content_rule_service_nfs_disabled
+    # - xccdf_org.ssgproject.content_rule_service_smb_disabled
   services: []
   paths:    []
-  users:    []
 
 hooks:
   pre_hardening:  ""

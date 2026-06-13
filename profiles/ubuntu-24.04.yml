@@ -32,10 +32,23 @@ backup:
     - /etc/apparmor.d
 
 exclusions:
-  rules:    []
+  rules:
+    # Firewall kuralları — varsayılan DROP policy SSH bağlantısını kesebilir
+    - xccdf_org.ssgproject.content_rule_set_ufw_default_rule
+    - xccdf_org.ssgproject.content_rule_set_iptables_default_rule
+    - xccdf_org.ssgproject.content_rule_ip6tables_rules_for_open_ports
+    - xccdf_org.ssgproject.content_rule_nftables_rules_permanent
+    - xccdf_org.ssgproject.content_rule_set_nftables_table
+    # NFS sunucusu çalışıyorsa aşağıdaki satırları uncomment edin:
+    # - xccdf_org.ssgproject.content_rule_package_autofs_removed
+    # - xccdf_org.ssgproject.content_rule_service_autofs_disabled
+    # - xccdf_org.ssgproject.content_rule_package_nfs-kernel-server_removed
+    # - xccdf_org.ssgproject.content_rule_package_rpcbind_removed
+    # - xccdf_org.ssgproject.content_rule_service_rpcbind_disabled
+    # - xccdf_org.ssgproject.content_rule_service_nfs_disabled
+    # - xccdf_org.ssgproject.content_rule_service_smb_disabled
   services: []
   paths:    []
-  users:    []
 
 hooks:
   pre_hardening:  ""

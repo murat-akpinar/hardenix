@@ -14,6 +14,7 @@ BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
 # Runtime flags
 MODE="" REPORT_FORMAT="html" PROFILE_OVERRIDE="" LOCAL_CONF="" CONF_FILE=""
 DRY_RUN=false ENV_PROFILE="production"
+SEC_LEVEL="" SEC_LEVEL_LABEL=""
 
 # Populated by parse_conf
 PKG_MANAGER="" OSCAP_PKG="" SSG_PKG="" XML_PATH="" PROFILE_ID="" ARCH_FALLBACK="false"
@@ -72,17 +73,24 @@ usage() {
     echo ""
     echo -e "${BOLD}Options:${NC}"
     echo "  --dry-run           Preview what would change without applying (implies --apply)"
+    echo "  --level <1|2>       Hardening level: 1 = CIS Level 1 (basic), 2 = CIS Level 2 (strict)"
     echo "  --env <profile>     Environment: production | staging | development  (default: production)"
     echo "  --format <type>     Report format: html | json | both  (default: html)"
     echo "  --profile <id>      Override SCAP profile ID"
     echo "  --conf <file>       Use a local .yml instead of downloading"
     echo "  --help              Show this help"
     echo ""
+    echo -e "${BOLD}Hardening levels:${NC}"
+    echo "  Level 1  Basic, practical hardening — safe for everyday servers"
+    echo "  Level 2  Strict hardening for high-security/regulated environments"
+    echo "  (Debian → ANSSI BP28, Fedora → OSPP; level 2 = strict, level 1 = light)"
+    echo ""
     echo -e "${BOLD}Examples:${NC}"
     echo "  sudo $(basename "$0") --install"
     echo "  sudo $(basename "$0") --scan"
     echo "  sudo $(basename "$0") --dry-run"
-    echo "  sudo $(basename "$0") --apply --env development"
+    echo "  sudo $(basename "$0") --apply --level 1     # CIS Level 1 (basic)"
+    echo "  sudo $(basename "$0") --apply --level 2     # CIS Level 2 (strict)"
     echo "  sudo $(basename "$0") --unapply"
     echo "  sudo $(basename "$0") --uninstall"
     exit 0
@@ -101,6 +109,7 @@ parse_args() {
             --apply)     MODE="apply" ;;
             --unapply)   MODE="unapply" ;;
             --dry-run)   DRY_RUN=true ;;
+            --level)     shift; SEC_LEVEL="${1:-}" ;;
             --env)       shift; ENV_PROFILE="${1:-production}" ;;
             --format)    shift; REPORT_FORMAT="${1:-html}" ;;
             --profile)   shift; PROFILE_OVERRIDE="${1:-}" ;;
@@ -123,6 +132,16 @@ parse_args() {
         production|staging|development) ;;
         *) log_error "Invalid --env: $ENV_PROFILE (use: production | staging | development)"; exit 1 ;;
     esac
+
+    # --level is a friendly alias for picking the strict vs. basic baseline.
+    # It maps onto the profile keys and takes precedence over --env if both are given.
+    if [[ -n "$SEC_LEVEL" ]]; then
+        case "$SEC_LEVEL" in
+            1) ENV_PROFILE="development"; SEC_LEVEL_LABEL="CIS Level 1 (basic)" ;;
+            2) ENV_PROFILE="production";  SEC_LEVEL_LABEL="CIS Level 2 (strict)" ;;
+            *) log_error "Invalid --level: $SEC_LEVEL (use: 1 | 2)"; exit 1 ;;
+        esac
+    fi
 
     if [[ "$DRY_RUN" == true && "$MODE" != "apply" ]]; then
         log_warn "--dry-run only applies to --apply, ignoring."
@@ -153,7 +172,11 @@ detect_distro() {
     DISTRO_VERSION_MAJOR="${DISTRO_VERSION%%.*}"
 
     log_info "Detected: ${DISTRO_PRETTY}"
-    log_info "Environment: ${ENV_PROFILE}"
+    if [[ -n "$SEC_LEVEL_LABEL" ]]; then
+        log_info "Hardening level: ${SEC_LEVEL_LABEL}"
+    else
+        log_info "Environment: ${ENV_PROFILE}"
+    fi
 }
 
 # ── Profile Resolution ────────────────────────────────────────────────────────
@@ -327,6 +350,77 @@ check_dependencies() {
     log_info "oscap ${ver} — OK"
 }
 
+# ── Active Service Detection ──────────────────────────────────────────────────
+
+detect_active_services() {
+    [[ "$ARCH_FALLBACK" == "true" ]] && return
+
+    local detected=()
+    local rules_to_add=()
+
+    local nfs_pkg_rule="xccdf_org.ssgproject.content_rule_package_nfs-kernel-server_removed"
+    if [[ "$DISTRO_ID" != "ubuntu" && "$DISTRO_ID" != "debian" ]]; then
+        nfs_pkg_rule="xccdf_org.ssgproject.content_rule_package_nfs-utils_removed"
+    fi
+
+    if systemctl is-active --quiet nfs-server 2>/dev/null || \
+       systemctl is-active --quiet nfs-kernel-server 2>/dev/null; then
+        detected+=("NFS sunucusu")
+        rules_to_add+=(
+            "xccdf_org.ssgproject.content_rule_service_nfs_disabled"
+            "$nfs_pkg_rule"
+            "xccdf_org.ssgproject.content_rule_package_rpcbind_removed"
+            "xccdf_org.ssgproject.content_rule_service_rpcbind_disabled"
+        )
+    fi
+
+    if systemctl is-active --quiet autofs 2>/dev/null; then
+        detected+=("autofs")
+        rules_to_add+=(
+            "xccdf_org.ssgproject.content_rule_package_autofs_removed"
+            "xccdf_org.ssgproject.content_rule_service_autofs_disabled"
+        )
+    fi
+
+    if systemctl is-active --quiet smb 2>/dev/null || \
+       systemctl is-active --quiet smbd 2>/dev/null; then
+        detected+=("Samba (SMB)")
+        rules_to_add+=("xccdf_org.ssgproject.content_rule_service_smb_disabled")
+    fi
+
+    [[ ${#detected[@]} -eq 0 ]] && return
+
+    echo ""
+    log_warn "Aktif ağ paylaşım servisleri tespit edildi:"
+    for svc in "${detected[@]}"; do
+        echo "    • $svc"
+    done
+    echo ""
+
+    local add_exclusions=true
+    if [[ -t 0 ]]; then
+        echo -e "  CIS kuralları bu servisleri kaldırabilir veya devre dışı bırakabilir."
+        printf "  İlgili kurallar hariç tutulsun mu? [E/h]: "
+        local answer
+        read -r answer
+        case "${answer,,}" in
+            h|n|no|hayır) add_exclusions=false ;;
+        esac
+    else
+        log_warn "Etkileşimsiz mod — NFS/SMB kuralları otomatik olarak hariç tutuldu."
+    fi
+
+    if [[ "$add_exclusions" == true ]]; then
+        for rule in "${rules_to_add[@]}"; do
+            [[ "$EXCLUSION_RULES" != *"$rule"* ]] && \
+                EXCLUSION_RULES="${EXCLUSION_RULES:+$EXCLUSION_RULES }$rule"
+        done
+        log_info "NFS/SMB kuralları hariç tutuldu (${#rules_to_add[@]} kural)."
+    else
+        log_warn "Servis koruma atlandı — ilgili kurallar uygulanacak."
+    fi
+}
+
 # ── Tailoring File ────────────────────────────────────────────────────────────
 
 setup_tailoring() {
@@ -334,6 +428,21 @@ setup_tailoring() {
     TAILORING_FILE=""
 
     if [[ -z "$EXCLUSION_RULES" ]]; then return; fi
+
+    # Hariç tutulan rule ID'lerini datastream'e karşı doğrula — yazım hatası
+    # olursa kural sessizce yok sayılır, kullanıcıyı uyaralım.
+    if [[ -f "$XML_PATH" ]]; then
+        local unknown=()
+        for rule in $EXCLUSION_RULES; do
+            grep -q "id=\"${rule}\"" "$XML_PATH" 2>/dev/null || unknown+=("$rule")
+        done
+        if [[ ${#unknown[@]} -gt 0 ]]; then
+            log_warn "Datastream'de bulunamayan ${#unknown[@]} exclusion kuralı (yok sayılacak):"
+            for r in "${unknown[@]}"; do
+                echo "    • $r"
+            done
+        fi
+    fi
 
     local tailored_id="xccdf_linuxharden.custom_profile_tailored"
     local tfile="${TMP_DIR}/tailoring.xml"
@@ -871,7 +980,7 @@ run_apply() {
         log_warn "No changes will be made to the system."
         echo ""
         log_info "Profile  : $ACTIVE_PROFILE_ID"
-        log_info "Env      : $ENV_PROFILE"
+        log_info "Level    : ${SEC_LEVEL_LABEL:-$ENV_PROFILE}"
         [[ -n "$EXCLUSION_RULES" ]] && log_info "Excluded : $(echo "$EXCLUSION_RULES" | wc -w) rule(s)"
         echo ""
         mkdir -p "$REPORT_DIR"
@@ -1176,6 +1285,7 @@ main() {
     parse_conf
 
     if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" ]]; then
+        detect_active_services
         check_dependencies
         setup_tailoring
     fi
