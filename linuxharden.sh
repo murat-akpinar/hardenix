@@ -1162,7 +1162,8 @@ for ev, el in ET.iterparse(feed_f, ('end',)):
     if lname(el.tag) != 'definition':
         continue
     did = el.get('id')
-    if did in vuln:
+    # Only real vulnerability advisories — skip the 'inventory' (is-OS-installed) def.
+    if did in vuln and el.get('class') == 'patch':
         sev, title = 'Untriaged', ''
         for sub in el.iter():
             ln = lname(sub.tag)
@@ -1176,7 +1177,7 @@ for ev, el in ET.iterparse(feed_f, ('end',)):
         rows.append((sev, title))
     el.clear()
 
-total = len(vuln)
+total = len(rows)   # patch-class advisories only
 print(f"\n  {B}┌─ CVE Scan Summary {'─'*28}┐{NC}")
 print(f"  │  Vulnerable advisories : {total:<19}│")
 print(f"  │  Distinct CVEs         : {len(cves):<19}│")
