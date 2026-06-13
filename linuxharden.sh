@@ -7,6 +7,7 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly BACKUP_BASE="/var/lib/linuxharden"
 readonly REPORT_DIR="$(pwd)/reports"
 readonly TMP_DIR="/tmp/linuxharden_$$"
+readonly STATE_FILE="/var/lib/linuxharden/applied_level"   # records the applied hardening level
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
@@ -216,12 +217,18 @@ detect_distro() {
     DISTRO_VERSION_MAJOR="${DISTRO_VERSION%%.*}"
 
     log_info "Detected: ${DISTRO_PRETTY}"
-    # The hardening level only applies to the CIS compliance modes — it is
-    # irrelevant to CVE scanning, patching, install/uninstall, etc., so don't
-    # print it there (it looked like an applied state rather than a selection).
+    # Show the *applied* hardening state (from the state file written by --apply),
+    # not the selected level — so a fresh box reads "None" instead of looking
+    # hardened. Only relevant to the CIS compliance modes.
     case "$MODE" in
         scan|apply|unapply|scan_arch|apply_arch|unapply_arch)
-            log_info "Hardening level: ${SEC_LEVEL_LABEL}" ;;
+            local applied; applied=$(cat "$STATE_FILE" 2>/dev/null || true)
+            if [[ -n "$applied" ]]; then
+                log_info "Hardening applied: ${applied}"
+            else
+                log_warn "Hardening applied: None"
+            fi
+            ;;
     esac
 }
 
@@ -1515,6 +1522,9 @@ run_apply() {
 
     run_hook "$HOOK_POST" "post_hardening"
 
+    # Record the applied level so the banner reflects the real state.
+    echo "$SEC_LEVEL_LABEL" > "$STATE_FILE" 2>/dev/null || true
+
     echo ""
     log_info "Backup at: $backup_dir"
     log_warn "A reboot may be required for some changes to take effect."
@@ -1678,6 +1688,9 @@ revert_hardening() {
 
     # Rollback hook (read from manifest so it's the hook that was set at install time)
     if [[ -n "$rollback_hook" ]]; then run_hook "$rollback_hook" "on_rollback"; fi
+
+    # Hardening is reverted — clear the applied-state marker.
+    rm -f "$STATE_FILE" 2>/dev/null || true
     return 0
 }
 
