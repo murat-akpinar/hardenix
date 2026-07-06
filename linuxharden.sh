@@ -19,6 +19,8 @@ DRY_RUN=false
 ASSUME_YES=false        # --yes / --non-interactive: skip confirmation prompts
 MIN_SCORE=""            # --min-score N: exit non-zero if scan score < N
 DEADMAN_MIN=""          # --deadman N: auto-revert N min after apply unless --confirm
+DEFER_MIN_SCORE=false   # true during --scan (combined): gate runs after all layers
+LAST_SCAN_ARF=""        # set by run_scan; consumed by run_scan_full's final gate
 readonly DEADMAN_UNIT="hardenix-deadman"
 # ENV_PROFILE is the internal key into scap.profiles; it is driven solely by --level.
 # Default: level 2 (strict). --level 1 switches to the basic baseline.
@@ -88,7 +90,8 @@ usage() {
     echo "  --install-openscap  Install only OpenSCAP + SCAP content"
     echo "  --install-lynis     Install only Lynis (audit engine)"
     echo "  --uninstall         Revert hardening, then remove OpenSCAP + SCAP packages"
-    echo "  --scan              Scan system compliance and generate report"
+    echo "  --scan              Full posture scan: compliance + Lynis audit + known CVEs"
+    echo "  --scan-compliance   Compliance scan only (OpenSCAP)"
     echo "  --scan-lynis        Lynis audit only: hardening index (0-100) + warnings"
     echo "  --scan-cve          Scan installed packages for known CVEs (OVAL feed)"
     echo "  --fix-cve           Install available security updates only"
@@ -145,6 +148,7 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --scan)      MODE="scan" ;;
+            --scan-compliance)  MODE="scan_compliance" ;;
             --scan-cve)  MODE="scan_cve" ;;
             --scan-lynis)       MODE="scan_lynis" ;;
             --fix-cve)   MODE="fix_cve" ;;
@@ -229,7 +233,7 @@ detect_distro() {
     # not the selected level — so a fresh box reads "None" instead of looking
     # hardened. Only relevant to the CIS compliance modes.
     case "$MODE" in
-        scan|apply|unapply|scan_arch|apply_arch|unapply_arch)
+        scan|scan_compliance|scan_arch|scan_compliance_arch|scan_lynis|apply|unapply|apply_arch|unapply_arch)
             local applied; applied=$(cat "$STATE_FILE" 2>/dev/null || true)
             if [[ -n "$applied" ]]; then
                 log_info "Hardening applied: ${applied}"
@@ -349,7 +353,7 @@ PYEOF
 
     if [[ "$ARCH_FALLBACK" == "true" ]]; then
         case "$MODE" in
-            scan|apply|unapply) MODE="${MODE}_arch" ;;
+            scan|scan_compliance|apply|unapply) MODE="${MODE}_arch" ;;
         esac
         return
     fi
@@ -637,6 +641,18 @@ for rr in ET.parse(sys.argv[1]).getroot().iter(f'{{{NS}}}rule-result'):
 total = p + f
 print(f"{round(p/total*100,1) if total > 0 else 0}")
 PYEOF
+}
+
+# --min-score gate: exit 2 when the compliance score is below the threshold.
+enforce_min_score() {
+    local arf="$1"
+    [[ -z "$MIN_SCORE" ]] && return 0
+    local score; score=$(get_score "$arf")
+    if (( ${score%.*} < MIN_SCORE )); then
+        log_error "Score ${score}% is below --min-score ${MIN_SCORE}%."
+        exit 2
+    fi
+    log_info "Score ${score}% meets --min-score ${MIN_SCORE}%."
 }
 
 print_improvement() {
@@ -1168,16 +1184,10 @@ run_scan() {
     echo ""
     print_scan_summary "$arf_file"
 
-    # --min-score: fail (non-zero exit) when compliance is below the threshold.
-    if [[ -n "$MIN_SCORE" ]]; then
-        local score; score=$(get_score "$arf_file")
-        # integer compare (drop any decimals)
-        if (( ${score%.*} < MIN_SCORE )); then
-            log_error "Score ${score}% is below --min-score ${MIN_SCORE}%."
-            exit 2
-        fi
-        log_info "Score ${score}% meets --min-score ${MIN_SCORE}%."
-    fi
+    LAST_SCAN_ARF="$arf_file"
+    # --min-score gate — deferred during the combined --scan so the Lynis and
+    # CVE layers still run; run_scan_full enforces it at the very end.
+    [[ "$DEFER_MIN_SCORE" == true ]] || enforce_min_score "$arf_file"
 }
 
 # ── CVE / Vulnerability Scan (OVAL) ─────────────────────────────────────────────
@@ -1481,6 +1491,32 @@ run_scan_lynis() {
     cp "$LYNIS_REPORT_DAT" "$report_copy"
     log_info "Report : $report_copy"
     print_lynis_summary "$LYNIS_REPORT_DAT"
+}
+
+# ── Combined Posture Scan (--scan) ──────────────────────────────────────────────
+# All read-only layers in one run: compliance (OpenSCAP) → Lynis audit → CVE scan.
+# Compliance is required (core); Lynis and CVE layers are skipped with a warning
+# when their tooling/feed is missing. --min-score is enforced last.
+run_scan_full() {
+    DEFER_MIN_SCORE=true
+    run_scan
+
+    echo ""
+    if command -v lynis &>/dev/null; then
+        run_scan_lynis
+    else
+        log_warn "Lynis not installed — skipping audit layer (enable with --install-lynis)."
+    fi
+
+    echo ""
+    if [[ "$PKG_MANAGER" == "dnf" || "$PKG_MANAGER" == "yum" || -n "$OVAL_URL" ]]; then
+        run_scan_cve
+    else
+        log_warn "No OVAL feed configured (scap.oval_url) — skipping CVE layer."
+    fi
+
+    DEFER_MIN_SCORE=false
+    [[ -n "$LAST_SCAN_ARF" ]] && enforce_min_score "$LAST_SCAN_ARF" || true
 }
 
 # ── Security Patching (--fix-cve) ───────────────────────────────────────────────
@@ -1902,7 +1938,22 @@ run_uninstall() {
 
 # ── Arch Fallback ─────────────────────────────────────────────────────────────
 
-run_scan_arch()     { log_warn "Arch: full SCAP not available (no SSG)."; arch_basic_check; }
+run_scan_arch() {
+    log_warn "Arch: full SCAP not available (no SSG)."
+    arch_basic_check
+    echo ""
+    if command -v lynis &>/dev/null; then
+        run_scan_lynis
+    else
+        log_warn "Lynis not installed — skipping audit layer (enable with --install-lynis)."
+    fi
+}
+
+run_scan_compliance_arch() {
+    log_warn "Arch: full SCAP not available (no SSG)."
+    arch_basic_check
+}
+
 run_unapply_arch()  { run_unapply; }
 
 run_apply_arch() {
@@ -2019,7 +2070,8 @@ main() {
 
     # CVE scan needs only oscap + the OVAL feed — skip the XCCDF/profile prep.
     if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" \
-          && "$MODE" != "scan_cve" && "$MODE" != "fix_cve" && "$MODE" != "scan_lynis" ]]; then
+          && "$MODE" != "scan_cve" && "$MODE" != "fix_cve" && "$MODE" != "scan_lynis" \
+          && "$MODE" != "scan_compliance_arch" ]]; then
         # Service protection only matters for --apply (it stops hardening from
         # removing/disabling a running service). --scan is read-only, so don't
         # prompt there — just report the real compliance state.
@@ -2032,16 +2084,18 @@ main() {
     fi
 
     case "$MODE" in
-        scan)          run_scan ;;
-        scan_lynis)    run_scan_lynis ;;
-        scan_cve)      run_scan_cve ;;
-        fix_cve)       run_fix_cve ;;
-        apply)         run_apply ;;
-        unapply)       run_unapply ;;
-        uninstall)     run_uninstall ;;
-        scan_arch)     run_scan_arch ;;
-        apply_arch)    run_apply_arch ;;
-        unapply_arch)  run_unapply_arch ;;
+        scan)                 run_scan_full ;;
+        scan_compliance)      run_scan ;;
+        scan_lynis)           run_scan_lynis ;;
+        scan_cve)             run_scan_cve ;;
+        fix_cve)              run_fix_cve ;;
+        apply)                run_apply ;;
+        unapply)              run_unapply ;;
+        uninstall)            run_uninstall ;;
+        scan_arch)            run_scan_arch ;;
+        scan_compliance_arch) run_scan_compliance_arch ;;
+        apply_arch)           run_apply_arch ;;
+        unapply_arch)         run_unapply_arch ;;
     esac
 }
 
