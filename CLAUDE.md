@@ -15,6 +15,7 @@ hardening (`--scan` / `--apply` / `--unapply`) and CVE management (`--scan-cve` 
 | `todo/plan.md` | Script roadmap (FAZ 0–10; FAZ 0–6 done). Turkish. |
 | `todo/webui-plan.md` | Web UI plan (FAZ W0–W8, not started). Its design decisions are binding. |
 | `todo/TESTING.md` | Smoke-test procedure + phase acceptance gates. |
+| `docs/` | Architecture docs (final target state): `architecture.md`, `script-internals.md`, `fleet-webui.md`. Keep in sync when modes/flows change. |
 | `.rules/` | Project rulebooks — local, gitignored (see Rules below). |
 | `reports/`, `tmp/` | Generated scan output / legacy scratch. Both gitignored; never commit contents. |
 
