@@ -1,0 +1,6 @@
+# linuxharden.sh runs on Linux; profiles are parsed there. CRLF anywhere in
+# them breaks bash/PyYAML, so force LF at checkout AND in git-archive output —
+# regardless of core.autocrlf on the contributor's machine (Windows deploys
+# via tar/scp/git-archive would otherwise ship CRLF and die on `$'\r'`).
+*.sh  text eol=lf
+*.yml text eol=lf
