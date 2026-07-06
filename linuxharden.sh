@@ -2068,7 +2068,7 @@ EOF
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 
-cleanup() { [[ -d "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"; }
+cleanup() { [[ -d "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR" || true; }   # || true: a failing EXIT trap must not overwrite the script's exit status
 trap cleanup EXIT
 
 # ── Main ──────────────────────────────────────────────────────────────────────
