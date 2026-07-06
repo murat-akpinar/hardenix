@@ -25,7 +25,7 @@ imaja göm, sonra uygulamaları üstüne kur.
 ## Özellikler
 
 ### Uyumluluk sıkılaştırması
-- **`--scan`** — Uyumluluk taraması (CIS/ANSSI/STIG), HTML/JSON rapor + skor
+- **`--scan`** — Tam durum taraması: uyumluluk (CIS/ANSSI/STIG) + Lynis denetimi + bilinen CVE'ler; HTML/JSON rapor + skor (`--scan-compliance` = yalnızca uyumluluk katmanı)
 - **`--apply`** — Sıkılaştırma uygular; önce yedek alır, before/after skor gösterir
 - **`--unapply`** — Sistemi apply öncesi **tam** haline döndürür (config'ler **ve**
   hardening'in kaldırdığı paketler; openscap'i ve eklenen uygulamaları korur)
@@ -53,7 +53,7 @@ imaja göm, sonra uygulamaları üstüne kur.
 - **`--min-score <N>`** — Skor N'in altındaysa hata koduyla çıkar (CI barajı)
 - **Çalışan servis koruması** — Aktif servisleri (NFS/SMB, **Apache/nginx**) tespit
   edip onları kaldıracak/durduracak kuralları hariç tutmayı önerir
-- **Kurulum** — `--install` (OpenSCAP + SCAP içeriği) / `--uninstall` (geri al, sonra kaldır)
+- **Kurulum** — `--install` (OpenSCAP + SCAP içeriği + Lynis) / `--uninstall` (geri al, sonra kaldır)
 
 ### Yerleşik
 - **Exclusions** (kural/servis/path), **hooks** (pre/post/rollback),
@@ -117,6 +117,7 @@ sudo ./linuxharden.sh --install
 - Ubuntu'da `universe` reposunu etkinleştirir
 - `openscap` ve distro'ya uygun SSG paketini kurar
 - Ubuntu 24.04 gibi repo'su yetersiz sistemlerde SCAP içeriğini GitHub'dan indirir (`/usr/share/xml/scap/ssg/content/` altına koyar)
+- İkinci görüş denetimi için Lynis'i kurar (best-effort; tek başına tekrar: `--install-lynis`)
 
 ---
 
@@ -139,7 +140,7 @@ sudo ./linuxharden.sh --apply --level 2     # CIS Level 2 (sıkı)
 # Sıkılaştırmayı geri al (backup'tan config'leri restore eder)
 sudo ./linuxharden.sh --unapply
 
-# Uyumluluk taraması yap
+# Tam durum taraması (compliance + Lynis denetimi + CVE)
 sudo ./linuxharden.sh --scan
 
 # HTML + JSON rapor üret

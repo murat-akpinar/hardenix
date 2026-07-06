@@ -25,7 +25,7 @@ into your base image, then layer applications on top.
 ## Features
 
 ### Compliance hardening
-- **`--scan`** — Compliance scan (CIS/ANSSI/STIG), HTML/JSON report + score
+- **`--scan`** — Full posture scan: compliance (CIS/ANSSI/STIG) + Lynis audit + known CVEs; HTML/JSON report + score (`--scan-compliance` = compliance layer only)
 - **`--apply`** — Apply hardening; backs up first, then shows before/after score
 - **`--unapply`** — Revert hardening to the exact pre-apply state (configs **and**
   packages the hardening removed; keeps OpenSCAP and any apps it added)
@@ -53,7 +53,7 @@ into your base image, then layer applications on top.
 - **`--min-score <N>`** — Exit non-zero if compliance score is below N (CI gate)
 - **Running-service protection** — Detects active services (NFS/SMB, **Apache/nginx**)
   and offers to exclude the rules that would remove/disable them
-- **Setup** — `--install` (OpenSCAP + SCAP content) / `--uninstall` (revert, then remove)
+- **Setup** — `--install` (OpenSCAP + SCAP content + Lynis) / `--uninstall` (revert, then remove)
 
 ### Built-in
 - **Exclusions** (rules / services / paths), **hooks** (pre/post/rollback),
@@ -118,6 +118,7 @@ sudo ./linuxharden.sh --install
 - Enables the `universe` repo on Ubuntu
 - Installs `openscap` and the appropriate SSG package for the distro
 - Downloads SCAP content from GitHub for distros whose repos are too old (e.g. Ubuntu 24.04 lacks `ssg-ubuntu2404-ds.xml` in `ssg-debderived` 0.1.71)
+- Installs Lynis for the second-opinion audit (best-effort; retry alone with `--install-lynis`)
 
 ---
 
@@ -140,7 +141,7 @@ sudo ./linuxharden.sh --apply --level 2     # CIS Level 2 (strict)
 # Revert hardening (restores configs from backup)
 sudo ./linuxharden.sh --unapply
 
-# Run a compliance scan
+# Run a full posture scan (compliance + Lynis audit + CVE)
 sudo ./linuxharden.sh --scan
 
 # Generate HTML + JSON report
