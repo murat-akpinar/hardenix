@@ -2069,13 +2069,15 @@ main() {
     parse_conf
 
     # CVE scan needs only oscap + the OVAL feed — skip the XCCDF/profile prep.
-    if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" \
-          && "$MODE" != "scan_cve" && "$MODE" != "fix_cve" && "$MODE" != "scan_lynis" \
-          && "$MODE" != "scan_compliance_arch" ]]; then
+    # Arch fallback modes skip it entirely: they have no SCAP datastream, and
+    # check_dependencies would abort on the profile's empty xml_path.
+    if [[ "$ARCH_FALLBACK" != "true" \
+          && "$MODE" != "unapply" && "$MODE" != "uninstall" \
+          && "$MODE" != "scan_cve" && "$MODE" != "fix_cve" && "$MODE" != "scan_lynis" ]]; then
         # Service protection only matters for --apply (it stops hardening from
         # removing/disabling a running service). --scan is read-only, so don't
         # prompt there — just report the real compliance state.
-        if [[ "$MODE" == "apply" || "$MODE" == "apply_arch" ]]; then
+        if [[ "$MODE" == "apply" ]]; then
             detect_active_services
         fi
         check_dependencies
