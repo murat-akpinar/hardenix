@@ -184,6 +184,11 @@ parse_args() {
         log_error "Invalid --min-score: $MIN_SCORE (use an integer 0-100)"; exit 1
     fi
 
+    if [[ -n "$MIN_SCORE" && "$MODE" == "scan_lynis" ]]; then
+        log_warn "--min-score has no effect with --scan-lynis (no compliance score) — ignoring."
+        MIN_SCORE=""
+    fi
+
     if [[ -n "$DEADMAN_MIN" ]]; then
         if [[ ! "$DEADMAN_MIN" =~ ^[0-9]+$ || "$DEADMAN_MIN" -lt 1 ]]; then
             log_error "Invalid --deadman: $DEADMAN_MIN (use a positive integer, minutes)"; exit 1
@@ -1475,17 +1480,33 @@ run_scan_lynis() {
 
     mkdir -p "$REPORT_DIR"
     local ts; ts=$(date +%Y%m%d_%H%M%S)
+    local err_log="${REPORT_DIR}/lynis_${ts}.err"
 
-    local pid
-    lynis audit system --quiet --no-colors >/dev/null 2>&1 &
+    # /var/log/lynis-report.dat survives across runs — record its mtime so a
+    # failed audit can't silently re-present the previous report as current.
+    local prev_mtime=0
+    [[ -f "$LYNIS_REPORT_DAT" ]] && prev_mtime=$(stat -c %Y "$LYNIS_REPORT_DAT" 2>/dev/null || echo 0)
+
+    local pid rc=0
+    lynis audit system --quiet --no-colors >"$err_log" 2>&1 &
     pid=$!
     _spin "$pid" "Auditing system with Lynis..."
-    wait "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || rc=$?
 
-    if [[ ! -f "$LYNIS_REPORT_DAT" ]]; then
-        log_error "Lynis produced no report ($LYNIS_REPORT_DAT)."
+    local new_mtime=0
+    [[ -f "$LYNIS_REPORT_DAT" ]] && new_mtime=$(stat -c %Y "$LYNIS_REPORT_DAT" 2>/dev/null || echo 0)
+
+    if [[ ! -f "$LYNIS_REPORT_DAT" || "$new_mtime" -le "$prev_mtime" ]]; then
+        log_error "Lynis did not produce a fresh report (exit ${rc})."
+        if [[ -s "$err_log" ]]; then
+            echo ""
+            tail -20 "$err_log" | sed 's/^/  /'
+            echo -e "  Full output: ${BOLD}${err_log}${NC}"
+        fi
         exit 1
     fi
+    [[ $rc -ne 0 ]] && log_warn "lynis exited non-zero (${rc}) — report was produced; see ${err_log}"
+    [[ $rc -eq 0 ]] && rm -f "$err_log"
 
     local report_copy="${REPORT_DIR}/lynis_${ts}.dat"
     cp "$LYNIS_REPORT_DAT" "$report_copy"
@@ -1942,6 +1963,7 @@ run_uninstall() {
 # ── Arch Fallback ─────────────────────────────────────────────────────────────
 
 run_scan_arch() {
+    [[ -n "$MIN_SCORE" ]] && log_warn "--min-score is not supported on Arch (no compliance score) — ignoring."
     log_warn "Arch: full SCAP not available (no SSG)."
     arch_basic_check
     echo ""
@@ -1953,6 +1975,7 @@ run_scan_arch() {
 }
 
 run_scan_compliance_arch() {
+    [[ -n "$MIN_SCORE" ]] && log_warn "--min-score is not supported on Arch (no compliance score) — ignoring."
     log_warn "Arch: full SCAP not available (no SSG)."
     arch_basic_check
 }
