@@ -8,6 +8,7 @@ packages:
   manager: dnf
   oscap: openscap-utils
   ssg: scap-security-guide
+  lynis: lynis
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-fedora-ds.xml

@@ -8,6 +8,7 @@ packages:
   manager: apt-get
   oscap: openscap-utils
   ssg: ssg-base ssg-debderived
+  lynis: lynis
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-ubuntu2204-ds.xml

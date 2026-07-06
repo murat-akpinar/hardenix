@@ -8,6 +8,7 @@ packages:
   manager: apt-get
   oscap: openscap-utils
   ssg: ssg-base ssg-debian
+  lynis: lynis
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-debian12-ds.xml

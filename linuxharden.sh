@@ -26,6 +26,7 @@ SEC_LEVEL="2" SEC_LEVEL_LABEL="CIS Level 2 (strict)"
 
 # Populated by parse_conf
 PKG_MANAGER="" OSCAP_PKG="" SSG_PKG="" XML_PATH="" PROFILE_ID="" ARCH_FALLBACK="false"
+LYNIS_PKG=""            # packages.lynis (default: lynis) — for --install / --scan-lynis
 OVAL_URL=""             # scap.oval_url: vendor CVE/OVAL feed for --scan-cve
 BACKUP_DIRS="" EXCLUSION_RULES="" EXCLUSION_SERVICES="" EXCLUSION_PATHS=""
 HOOK_PRE="" HOOK_POST="" HOOK_ROLLBACK=""
@@ -82,7 +83,9 @@ usage() {
     echo -e "${BOLD}Usage:${NC} $(basename "$0") [MODE] [OPTIONS]"
     echo ""
     echo -e "${BOLD}Modes:${NC}"
-    echo "  --install           Install OpenSCAP + SCAP content for this distro"
+    echo "  --install           Install OpenSCAP + SCAP content + Lynis for this distro"
+    echo "  --install-openscap  Install only OpenSCAP + SCAP content"
+    echo "  --install-lynis     Install only Lynis (audit engine)"
     echo "  --uninstall         Revert hardening, then remove OpenSCAP + SCAP packages"
     echo "  --scan              Scan system compliance and generate report"
     echo "  --scan-cve          Scan installed packages for known CVEs (OVAL feed)"
@@ -143,6 +146,8 @@ parse_args() {
             --scan-cve)  MODE="scan_cve" ;;
             --fix-cve)   MODE="fix_cve" ;;
             --install)   MODE="install" ;;
+            --install-openscap) MODE="install_openscap" ;;
+            --install-lynis)    MODE="install_lynis" ;;
             --uninstall) MODE="uninstall" ;;
             --apply)     MODE="apply" ;;
             --unapply)   MODE="unapply" ;;
@@ -315,6 +320,7 @@ profile_id = profiles.get(env) or profiles.get('production') or ''
 print(f'PKG_MANAGER={q(pkgs.get("manager",""))}')
 print(f'OSCAP_PKG={q(pkgs.get("oscap",""))}')
 print(f'SSG_PKG={q(pkgs.get("ssg",""))}')
+print(f'LYNIS_PKG={q(pkgs.get("lynis","lynis"))}')
 print(f'XML_PATH={q(scap.get("xml_path",""))}')
 print(f'OVAL_URL={q(scap.get("oval_url",""))}')
 print(f'PROFILE_ID={q(profile_id)}')
@@ -972,8 +978,51 @@ install_ssg_from_github() {
     log_info "SCAP content installed: ${dest_dir}/${xml_filename}"
 }
 
+# Install Lynis. strict=true (--install-lynis): failure exits non-zero.
+# strict=false (--install): warn and continue — Lynis is a second-opinion
+# layer; its absence must not fail the core OpenSCAP setup.
+install_lynis_pkg() {
+    local strict="${1:-false}"
+
+    if command -v lynis &>/dev/null; then
+        log_info "Lynis already installed."
+        return 0
+    fi
+
+    log_info "Installing Lynis (${LYNIS_PKG})..."
+    local rc=0
+    # shellcheck disable=SC2086
+    case "$PKG_MANAGER" in
+        apt-get) apt-get install -y $LYNIS_PKG || rc=$? ;;
+        dnf|yum) "$PKG_MANAGER" install -y $LYNIS_PKG || rc=$? ;;
+        zypper)  zypper install -y $LYNIS_PKG || rc=$? ;;
+        pacman)  pacman -S --noconfirm $LYNIS_PKG || rc=$? ;;
+    esac
+
+    if [[ $rc -ne 0 ]]; then
+        if [[ "$PKG_MANAGER" == "dnf" || "$PKG_MANAGER" == "yum" ]]; then
+            echo -e "  Hint: Lynis lives in ${BOLD}EPEL${NC} — enable it first:"
+            echo -e "        ${BOLD}${PKG_MANAGER} install -y epel-release${NC}"
+        fi
+        if [[ "$strict" == "true" ]]; then
+            log_error "Lynis installation failed."
+            exit 1
+        fi
+        log_warn "Lynis could not be installed — skipping (compliance/CVE features unaffected)."
+        echo -e "  Retry later with: ${BOLD}sudo $(basename "$0") --install-lynis${NC}"
+        return 0
+    fi
+    log_info "Lynis ready."
+}
+
 run_install_deps() {
-    log_section "Installing OpenSCAP Dependencies"
+    local component="${1:-all}"    # all | openscap | lynis
+
+    case "$component" in
+        all)      log_section "Installing Dependencies (OpenSCAP + Lynis)" ;;
+        openscap) log_section "Installing OpenSCAP Dependencies" ;;
+        lynis)    log_section "Installing Lynis" ;;
+    esac
 
     # Derive package manager from distro before parse_conf (python3-yaml not yet installed)
     local pm py_pkg
@@ -1014,50 +1063,62 @@ run_install_deps() {
         pacman)  pacman -S --noconfirm "$py_pkg" ;;
     esac
 
-    # Parse the profile to get PKG_MANAGER, OSCAP_PKG, SSG_PKG, XML_PATH
+    # Parse the profile to get PKG_MANAGER, OSCAP_PKG, SSG_PKG, XML_PATH, LYNIS_PKG
     parse_conf
 
-    # Arch: openscap only, no SSG
-    if [[ "$ARCH_FALLBACK" == "true" ]]; then
-        log_info "Arch Linux: installing openscap (no SSG available)..."
-        pacman -S --noconfirm openscap
-        log_info "Done. Use --apply for basic hardening mode."
-        return
+    if [[ "$component" != "lynis" ]]; then
+        if [[ "$ARCH_FALLBACK" == "true" ]]; then
+            # Arch: openscap only, no SSG
+            log_info "Arch Linux: installing openscap (no SSG available)..."
+            pacman -S --noconfirm openscap
+            log_info "Use --apply for basic hardening mode."
+        else
+            # Install openscap
+            log_info "Installing OpenSCAP (${OSCAP_PKG})..."
+            # shellcheck disable=SC2086
+            case "$PKG_MANAGER" in
+                apt-get) apt-get install -y $OSCAP_PKG ;;
+                dnf)     dnf install -y $OSCAP_PKG ;;
+                zypper)  zypper install -y $OSCAP_PKG ;;
+                pacman)  pacman -S --noconfirm $OSCAP_PKG ;;
+            esac
+
+            # Install SSG packages from distro repo (best-effort)
+            if [[ -n "$SSG_PKG" ]]; then
+                log_info "Installing SCAP Security Guide (${SSG_PKG})..."
+                # shellcheck disable=SC2086
+                case "$PKG_MANAGER" in
+                    apt-get) apt-get install -y $SSG_PKG 2>/dev/null \
+                        || log_warn "Some SSG packages not in distro repo — will try GitHub." ;;
+                    dnf)    dnf install -y $SSG_PKG ;;
+                    zypper) zypper install -y $SSG_PKG ;;
+                esac
+            fi
+
+            # If XML content is still missing, download from GitHub
+            if [[ -n "$XML_PATH" && ! -f "$XML_PATH" ]]; then
+                log_warn "SCAP content not found: $XML_PATH"
+                install_ssg_from_github
+            else
+                log_info "SCAP content: $XML_PATH"
+            fi
+
+            local ver; ver=$(oscap --version 2>&1 | awk 'NR==1{print $NF}')
+            log_info "oscap ${ver} — ready"
+        fi
     fi
 
-    # Install openscap
-    log_info "Installing OpenSCAP (${OSCAP_PKG})..."
-    case "$PKG_MANAGER" in
-        apt-get) apt-get install -y $OSCAP_PKG ;;
-        dnf)     dnf install -y $OSCAP_PKG ;;
-        zypper)  zypper install -y $OSCAP_PKG ;;
-        pacman)  pacman -S --noconfirm $OSCAP_PKG ;;
-    esac
-
-    # Install SSG packages from distro repo (best-effort)
-    if [[ -n "$SSG_PKG" ]]; then
-        log_info "Installing SCAP Security Guide (${SSG_PKG})..."
-        case "$PKG_MANAGER" in
-            apt-get) apt-get install -y $SSG_PKG 2>/dev/null \
-                || log_warn "Some SSG packages not in distro repo — will try GitHub." ;;
-            dnf)    dnf install -y $SSG_PKG ;;
-            zypper) zypper install -y $SSG_PKG ;;
-        esac
+    if [[ "$component" != "openscap" ]]; then
+        local strict="false"
+        [[ "$component" == "lynis" ]] && strict="true"
+        install_lynis_pkg "$strict"
     fi
 
-    # If XML content is still missing, download from GitHub
-    if [[ -n "$XML_PATH" && ! -f "$XML_PATH" ]]; then
-        log_warn "SCAP content not found: $XML_PATH"
-        install_ssg_from_github
-    else
-        log_info "SCAP content: $XML_PATH"
-    fi
-
-    local ver; ver=$(oscap --version 2>&1 | awk 'NR==1{print $NF}')
-    log_info "oscap ${ver} — ready"
     echo ""
-    log_info "All dependencies installed."
-    echo -e "  Next: ${BOLD}sudo bash $(basename "$0") --apply${NC}"
+    log_info "All requested components installed."
+    if [[ "$component" != "lynis" ]]; then
+        echo -e "  Next: ${BOLD}sudo bash $(basename "$0") --apply${NC}"
+    fi
 }
 
 # ── Scan ──────────────────────────────────────────────────────────────────────
@@ -1885,10 +1946,11 @@ main() {
     detect_distro
     download_conf
 
-    if [[ "$MODE" == "install" ]]; then
-        run_install_deps
-        return
-    fi
+    case "$MODE" in
+        install)          run_install_deps all;      return ;;
+        install_openscap) run_install_deps openscap; return ;;
+        install_lynis)    run_install_deps lynis;    return ;;
+    esac
 
     if [[ "$MODE" == "confirm" ]]; then
         run_confirm

@@ -8,6 +8,7 @@ packages:
   manager: pacman
   oscap: openscap
   ssg: ""
+  lynis: lynis
 
 scap:
   xml_path: ""

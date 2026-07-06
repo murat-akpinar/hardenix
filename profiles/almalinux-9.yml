@@ -8,6 +8,7 @@ packages:
   manager: dnf
   oscap: openscap-utils
   ssg: scap-security-guide
+  lynis: lynis   # EPEL'de — eksikse önce: dnf install -y epel-release
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-almalinux9-ds.xml

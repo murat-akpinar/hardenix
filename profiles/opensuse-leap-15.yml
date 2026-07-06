@@ -8,6 +8,7 @@ packages:
   manager: zypper
   oscap: openscap
   ssg: scap-security-guide
+  lynis: lynis
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-sle15-ds.xml  # SSG has no separate Leap datastream; SLE 15 profile is used
