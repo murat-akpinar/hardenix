@@ -11,11 +11,14 @@
 > Turkish version: [README_TR.md](README_TR.md)
 
 OpenSCAP-based Linux hardening **and vulnerability management** tool. A single
-script handles two complementary layers of security from one YAML profile:
+script handles three complementary layers of security from one YAML profile:
 
-1. **Compliance hardening** — CIS / ANSSI / STIG configuration baselines (`--scan`, `--apply`).
-2. **Vulnerability management** — known-CVE scanning against vendor OVAL feeds and
+1. **Compliance hardening** — CIS / ANSSI / STIG configuration baselines (`--scan-compliance`, `--apply`).
+2. **Security auditing** — Lynis second-opinion audit with a 0-100 hardening index (`--scan-lynis`).
+3. **Vulnerability management** — known-CVE scanning against vendor OVAL feeds and
    security patching (`--scan-cve`, `--fix-cve`).
+
+Plain `--scan` runs all read-only layers in one go.
 
 Built for the **golden-image workflow**: harden a blank server template, bake it
 into your base image, then layer applications on top.

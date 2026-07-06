@@ -1,10 +1,11 @@
 # hardenix
 
 OpenSCAP-based Linux hardening + CVE/vulnerability management tool. One bash script
-(`linuxharden.sh`) driven by per-distro YAML profiles. Two layers: compliance
-hardening (`--scan` / `--apply` / `--unapply`) and CVE management (`--scan-cve` /
-`--fix-cve`). A multi-user fleet web UI (FastAPI + Celery) is planned under `webui/`
-— see `todo/webui-plan.md`.
+(`linuxharden.sh`) driven by per-distro YAML profiles. Three layers: compliance
+hardening (`--scan-compliance` / `--apply` / `--unapply`), Lynis second-opinion
+audit (`--scan-lynis`), and CVE management (`--scan-cve` / `--fix-cve`); plain
+`--scan` is the combined posture scan. A multi-user fleet web UI (FastAPI + Celery)
+is planned under `webui/` — see `todo/webui-plan.md`.
 
 ## Map
 

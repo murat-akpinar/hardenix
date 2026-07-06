@@ -11,11 +11,14 @@
 > English version: [README.md](README.md)
 
 OpenSCAP tabanlı Linux sıkılaştırma **ve güvenlik açığı yönetim** aracı. Tek script,
-tek YAML profili ile birbirini tamamlayan iki güvenlik katmanını yönetir:
+tek YAML profili ile birbirini tamamlayan üç güvenlik katmanını yönetir:
 
-1. **Uyumluluk sıkılaştırması** — CIS / ANSSI / STIG yapılandırma baseline'ları (`--scan`, `--apply`).
-2. **Açık yönetimi** — satıcı OVAL feed'lerine karşı bilinen-CVE taraması ve güvenlik
+1. **Uyumluluk sıkılaştırması** — CIS / ANSSI / STIG yapılandırma baseline'ları (`--scan-compliance`, `--apply`).
+2. **Güvenlik denetimi** — 0-100 sıkılaştırma endeksi veren Lynis ikinci görüş denetimi (`--scan-lynis`).
+3. **Açık yönetimi** — satıcı OVAL feed'lerine karşı bilinen-CVE taraması ve güvenlik
    yaması (`--scan-cve`, `--fix-cve`).
+
+Düz `--scan` tüm read-only katmanları tek seferde çalıştırır.
 
 **Golden-image akışı** için tasarlandı: boş bir sunucu template'ini sıkılaştır, base
 imaja göm, sonra uygulamaları üstüne kur.
