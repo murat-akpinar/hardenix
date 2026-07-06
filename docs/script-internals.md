@@ -1,6 +1,6 @@
 # linuxharden.sh — Internals
 
-Single bash file (~1900 lines, `set -euo pipefail`), version in `SCRIPT_VERSION`.
+Single bash file (~2100 lines, `set -euo pipefail`), version in `SCRIPT_VERSION`.
 Everything below is implemented and tested (✅). Line references drift; function
 names are stable.
 
@@ -16,35 +16,74 @@ main()
  ├─ detect_distro()             # /etc/os-release → DISTRO_ID, DISTRO_VERSION
  ├─ download_conf()             # pick profiles/${DISTRO_ID}-${DISTRO_VERSION}.yml
  │                              #   (or --conf override); fallback name variants
- ├─ [--install  → run_install_deps(); exit]
+ ├─ [--install/--install-openscap/--install-lynis → run_install_deps(component); exit]
  ├─ [--confirm  → run_confirm();      exit]
  ├─ check_pyyaml() + parse_conf()     # YAML → PKG_MANAGER, XML_PATH, PROFILE_ID,
  │                                    #   OVAL_URL, BACKUP_DIRS, EXCLUSION_*, HOOK_*
- ├─ XCCDF prep — skipped for unapply/uninstall/scan-cve/fix-cve:
+ │                                    #   ARCH_FALLBACK=true → MODE remapped to *_arch
+ │                                    #   and parse_conf() returns early (see below)
+ ├─ XCCDF prep — skipped for unapply/uninstall/scan-cve/fix-cve/scan-lynis, and
+ │    skipped *entirely* when ARCH_FALLBACK (no SCAP datastream to validate):
  │    ├─ detect_active_services()     # --apply only (scan must stay honest)
  │    ├─ check_dependencies()  ├─ validate_profile()  └─ setup_tailoring()
- └─ dispatch: run_scan | run_scan_cve | run_fix_cve | run_apply | run_unapply
-              | run_uninstall | run_*_arch
+ └─ dispatch: run_scan_full (--scan) | run_scan (--scan-compliance)
+              | run_scan_lynis | run_scan_cve | run_fix_cve | run_apply
+              | run_unapply | run_uninstall | run_*_arch
 ```
 
 Key dispatch subtleties:
 
-- **Service protection runs only for `--apply`.** `--scan` is read-only, so it
-  reports the true compliance state without offering exclusions.
-- **CVE modes skip XCCDF/profile validation** — they need only oscap + a feed.
-- **Arch fallback**: `meta.arch_fallback: true` reroutes to `run_*_arch`
-  (basic sysctl + sshd hardening; no SSG content exists for Arch).
+- **Service protection runs only for `--apply`.** `--scan`/`--scan-compliance` are
+  read-only, so they report the true compliance state without offering exclusions.
+- **CVE and Lynis modes skip XCCDF/profile validation** — they need only oscap+feed
+  or `lynis`, never the SCAP datastream/profile.
+- **Arch fallback**: `meta.arch_fallback: true` reroutes `scan`/`scan_compliance`/
+  `apply`/`unapply` to `run_*_arch` (basic sysctl + sshd hardening; no SSG content
+  exists for Arch) and, since `parse_conf()` returns immediately after remapping,
+  also skips the XCCDF prep block entirely — this is what lets `--scan`/`--apply`
+  run on Arch at all instead of aborting on the profile's empty `xml_path`.
 
 ## Modes
 
-### `--scan` / `--dry-run` (read-only)
+### `--scan-compliance` / `--dry-run` (read-only)
 
-`oscap xccdf eval` against the datastream (`scap.xml_path`) with the active
-profile, results to `./reports/scan_<ts>.arf`. `get_score()` computes
+`run_scan()`: `oscap xccdf eval` against the datastream (`scap.xml_path`) with the
+active profile, results to `./reports/scan_<ts>.arf`. `get_score()` computes
 `pass/(pass+fail)` from the ARF via embedded python3. Reports: HTML via
 `oscap-report`, JSON summary via `generate_json_report()` (`--format html|json|both`).
 `--min-score N` exits non-zero below the threshold (CI gate). `--dry-run` is the
 same evaluation but prints failing rules grouped by severity and applies nothing.
+This is the old single-engine `--scan` behavior, kept under its own flag.
+
+### `--scan` (`run_scan_full()`) — combined posture scan
+
+Runs every read-only layer in one call, in order:
+
+1. **Compliance** — `run_scan()` (above), with `DEFER_MIN_SCORE=true` so a low
+   score doesn't short-circuit the remaining layers.
+2. **Lynis** — `run_scan_lynis()` (below) if `lynis` is on `PATH`; otherwise
+   `log_warn`s "Lynis not installed — skipping audit layer (enable with
+   `--install-lynis`)" and moves on.
+3. **CVE** — `run_scan_cve()` if the package manager is `dnf`/`yum` or
+   `scap.oval_url` is set; otherwise `log_warn`s "No OVAL feed configured
+   (scap.oval_url) — skipping CVE layer."
+
+`--min-score` is enforced **once, at the end**, against the compliance ARF
+(`LAST_SCAN_ARF`) — deferring it is what lets the Lynis/CVE layers run even on a
+failing compliance score, and it still gates the compliance score only, never the
+Lynis index or CVE count.
+
+### `--scan-lynis` (`run_scan_lynis()`)
+
+Exits early ("run `--install-lynis` first") if `lynis` isn't installed. Runs
+`lynis audit system --quiet --no-colors`, then reads the hardening index and
+counts from the report Lynis writes to `/var/log/lynis-report.dat`
+(`LYNIS_REPORT_DAT`): `print_lynis_summary()` extracts `hardening_index=` via
+`awk`, and counts `warning[]=` / `suggestion[]=` lines, printing the warnings
+themselves. The raw `.dat` is copied to `./reports/lynis_<ts>.dat` for retention —
+same convention as the compliance/CVE report files. Skipped (with a warning, not a
+hard failure) when called as a layer of `--scan`; hard-fails only when invoked
+directly via `--scan-lynis`.
 
 ### `--apply` (`run_apply()`)
 
@@ -118,13 +157,25 @@ full detail in `cve_<ts>.html`.
 those, then recommends re-running `--scan-cve` to verify. The scan→fix→rescan loop
 is the intended usage.
 
-### `--install` / `--uninstall`
+### `--install` / `--install-openscap` / `--install-lynis` / `--uninstall`
 
-`--install`: detects the package manager, enables Ubuntu `universe` if needed,
-installs `openscap` + the distro's SSG package; where repos ship no/old content
-(e.g. Ubuntu 24.04), `install_ssg_from_github()` fetches the SCAP datastream from
-the ComplianceAsCode releases. `--uninstall` reverts hardening **first** (same
-path as `--unapply`), then removes the OpenSCAP/SSG packages.
+All three install flags dispatch to `run_install_deps(component)` with
+`component` = `all` | `openscap` | `lynis`. `--install` (`all`): detects the
+package manager, enables Ubuntu `universe` if needed, installs `openscap` + the
+distro's SSG package (where repos ship no/old content, e.g. Ubuntu 24.04,
+`install_ssg_from_github()` fetches the SCAP datastream from the ComplianceAsCode
+releases), then installs Lynis. `--install-openscap` runs only the OpenSCAP/SSG
+half; `--install-lynis` runs only the Lynis half.
+
+Lynis installation itself is `install_lynis_pkg(strict)`: `strict=true` (only via
+`--install-lynis`) makes a failed install a hard error (`exit 1`); `strict=false`
+(the Lynis leg of plain `--install`) logs a warning and **continues** — Lynis is a
+second-opinion layer and its absence must not break the core OpenSCAP setup. On
+RHEL family (`dnf`/`yum`) a failed install prints an EPEL hint (`dnf install -y
+epel-release`), since Lynis isn't in the base repos there.
+
+`--uninstall` reverts hardening **first** (same path as `--unapply`), then removes
+the OpenSCAP/SSG packages **and** Lynis (if installed).
 
 ## Backup contract
 

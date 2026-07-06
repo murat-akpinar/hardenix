@@ -37,6 +37,15 @@ imaja göm, sonra uygulamaları üstüne kur.
   **bilinen CVE**'lere karşı tarar; severity gruplu özet + HTML rapor
 - **`--fix-cve`** — **Yalnızca** mevcut güvenlik güncellemelerini kurar, sonra doğrular
 
+### Denetim — ikinci görüş (Lynis)
+- **`--scan-lynis`** — [Lynis](https://github.com/CISOfy/lynis) sistem denetimi:
+  hardening index (0-100), uyarılar ve öneriler — OpenSCAP'ten bağımsız bir
+  ikinci görüş (ve Arch'ta kullanılabilen tek denetim motoru)
+- Düz **`--scan`** artık tüm salt-okunur katmanları tek seferde çalıştırır:
+  compliance + Lynis + CVE. Eksik katmanlar uyarıyla atlanır; eski tek-motorlu
+  davranış için `--scan-compliance` kullanın. `--min-score` hâlâ yalnızca
+  compliance skorunu kapı olarak kullanır.
+
 ### Güvenlik & otomasyon
 - **`--deadman <dk>` / `--confirm`** — Dead-man switch: N dakika içinde onaylanmazsa
   otomatik geri alır — **uzaktan** sıkılaştırmayı SSH lockout'a karşı güvenli kılar
@@ -66,7 +75,7 @@ imaja göm, sonra uygulamaları üstüne kur.
 | AlmaLinux 9 | CIS Level 2 Server | CIS Level 1 Server | SSG |
 | Fedora 40 | OSPP | Standard | SSG |
 | openSUSE Leap 15 | CIS Level 2 Server | CIS Level 1 Server | SSG |
-| Arch Linux | sysctl + SSH hardening | — | Bash fallback |
+| Arch Linux | sysctl + SSH hardening + Lynis audit | — | Bash fallback |
 
 > Debian ve Fedora için SSG bir CIS profili yayınlamıyor; ANSSI BP28 / OSPP kullanılır.
 > Burada `--level 2` "sıkı baseline", `--level 1` "hafif baseline" anlamına gelir.
@@ -136,6 +145,9 @@ sudo ./linuxharden.sh --scan
 # HTML + JSON rapor üret
 sudo ./linuxharden.sh --scan --format both
 
+# Yalnız Lynis denetimi (hardening index + uyarılar)
+sudo ./linuxharden.sh --scan-lynis
+
 # Kurulu paketleri bilinen CVE'lere karşı tara (OVAL feed)
 sudo ./linuxharden.sh --scan-cve
 
@@ -179,11 +191,15 @@ sudo ./linuxharden.sh --scan --min-score 90 || echo "baseline altında — deplo
 
 | Parametre | Açıklama |
 |-----------|----------|
-| `--install` | OpenSCAP + SCAP içeriklerini distro'ya göre otomatik kurar |
+| `--install` | Tespit edilen dağıtım için OpenSCAP + SCAP içeriği + Lynis kurar |
+| `--install-openscap` | Yalnız OpenSCAP + SCAP içeriği kurar |
+| `--install-lynis` | Yalnız Lynis kurar (RHEL ailesi: EPEL gerekir) |
 | `--uninstall` | Hardening'i geri alır, sonra OpenSCAP + SCAP paketlerini kaldırır |
 | `--apply` | Sıkılaştırma uygular (yedek → uygula → doğrula) |
 | `--unapply` | Sistemi apply öncesi haline döndürür (OpenSCAP'i korur) |
-| `--scan` | Compliance taraması, rapor üretir |
+| `--scan` | Tam durum taraması: compliance + Lynis denetimi + bilinen CVE'ler (eksik katman atlanır) |
+| `--scan-compliance` | Yalnız compliance taraması (OpenSCAP) |
+| `--scan-lynis` | Yalnız Lynis denetimi: hardening index (0-100) + uyarılar |
 | `--scan-cve` | Kurulu paketleri satıcı OVAL feed'iyle bilinen CVE'lere karşı tarar |
 | `--fix-cve` | Yalnızca mevcut güvenlik güncellemelerini kurar |
 | `--dry-run` | Başarısız kuralları severity gruplarına göre gösterir, sisteme dokunmaz (`--apply`'ı ima eder) |

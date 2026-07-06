@@ -25,6 +25,8 @@ sudo bash linuxharden.sh --apply --level 1 --yes  # uygula (yedek alır)   [*]
 sudo bash linuxharden.sh --scan                 # skor yükselmeli (~%93)
 sudo bash linuxharden.sh --unapply --yes        # geri al                 [*]
 sudo bash linuxharden.sh --scan                 # baseline'a dönmeli (~%65)
+sudo bash linuxharden.sh --scan-lynis          # hardening index üretmeli
+sudo bash linuxharden.sh --scan                # 3 katman: compliance + lynis + cve
 ```
 
 `[*]` `--yes` FAZ 4'te gelecek; o zamana dek onay `printf 'y\n' | ...` ile verilir.

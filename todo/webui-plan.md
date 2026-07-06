@@ -307,3 +307,6 @@ tekrarlanabilir. → commit `feat(webui): scale validation + docs`
 - `docker-compose.yml`'de repo kökü worker'a **read-only** mount edilir; deploy her zaman
   repo'daki güncel script'i basar → "script güncelle" işi = yeniden deploy.
 - Parola tabanlı SSH'ta paramiko `password=` kullanır; `sshpass` gerekmez.
+- v1.2.0'dan itibaren script'te `--scan-lynis` var: FAZ W5'teki Lynis işi artık
+  kendi kurulum/çalıştırma akışını kurmaz — `--scan-lynis --yes` çağırıp
+  `reports/lynis_*.dat` dosyasını çeker (diğer scan işleriyle aynı kalıp).

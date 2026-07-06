@@ -37,6 +37,15 @@ into your base image, then layer applications on top.
   OVAL feed (e.g. Ubuntu USN); severity-grouped summary + HTML report
 - **`--fix-cve`** — Install **only** the available security updates, then verify
 
+### Audit — second opinion (Lynis)
+- **`--scan-lynis`** — [Lynis](https://github.com/CISOfy/lynis) system audit:
+  hardening index (0-100), warnings and suggestions — an OpenSCAP-independent
+  second opinion (and the only audit engine available on Arch)
+- Plain **`--scan`** now runs every read-only layer in one go: compliance +
+  Lynis + CVE. Missing layers are skipped with a warning; use
+  `--scan-compliance` for the old single-engine behavior. `--min-score` still
+  gates the compliance score only.
+
 ### Safety & automation
 - **`--deadman <min>` / `--confirm`** — Dead-man switch: auto-revert after N minutes
   unless you confirm — makes **remote** hardening safe against SSH lockout
@@ -66,7 +75,7 @@ into your base image, then layer applications on top.
 | AlmaLinux 9 | CIS Level 2 Server | CIS Level 1 Server | SSG |
 | Fedora 40 | OSPP | Standard | SSG |
 | openSUSE Leap 15 | CIS Level 2 Server | CIS Level 1 Server | SSG |
-| Arch Linux | sysctl + SSH hardening | — | Bash fallback |
+| Arch Linux | sysctl + SSH hardening + Lynis audit | — | Bash fallback |
 
 > Debian and Fedora ship no CIS profile in SSG, so they use ANSSI BP28 / OSPP.
 > Here `--level 2` means "strict baseline" and `--level 1` means "light baseline".
@@ -137,6 +146,9 @@ sudo ./linuxharden.sh --scan
 # Generate HTML + JSON report
 sudo ./linuxharden.sh --scan --format both
 
+# Lynis audit only (hardening index + warnings)
+sudo ./linuxharden.sh --scan-lynis
+
 # Scan installed packages for known CVEs (OVAL feed)
 sudo ./linuxharden.sh --scan-cve
 
@@ -180,11 +192,15 @@ sudo ./linuxharden.sh --scan --min-score 90 || echo "below baseline — blocking
 
 | Parameter | Description |
 |-----------|-------------|
-| `--install` | Installs OpenSCAP + SCAP content for the detected distro |
+| `--install` | Installs OpenSCAP + SCAP content + Lynis for the detected distro |
+| `--install-openscap` | Installs only OpenSCAP + SCAP content |
+| `--install-lynis` | Installs only Lynis (RHEL family: requires EPEL) |
 | `--uninstall` | Reverts hardening, then removes OpenSCAP + SCAP packages |
 | `--apply` | Applies hardening (backup → apply → verify) |
 | `--unapply` | Reverts hardening to the pre-apply state (keeps OpenSCAP installed) |
-| `--scan` | Compliance scan, generates report |
+| `--scan` | Full posture scan: compliance + Lynis audit + known CVEs (missing layers skipped) |
+| `--scan-compliance` | Compliance scan only (OpenSCAP) |
+| `--scan-lynis` | Lynis audit only: hardening index (0-100) + warnings |
 | `--scan-cve` | Scans installed packages for known CVEs via the vendor OVAL feed |
 | `--fix-cve` | Installs only the available security updates |
 | `--dry-run` | Shows failing rules grouped by severity, does not apply (implies `--apply`) |

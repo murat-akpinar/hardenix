@@ -51,6 +51,7 @@ layers are roadmap (see `todo/plan.md`):
 | Layer | What | How | Status |
 |-------|------|-----|--------|
 | 1. Compliance hardening | CIS / ANSSI / STIG baseline | `--scan` / `--apply` / `--unapply` via `oscap xccdf eval [--remediate]` | ✅ |
+| 1b. Second-opinion audit | Lynis hardening index, warnings | `--scan-lynis` (also inside `--scan`) | ✅ |
 | 2. Vulnerability visibility | Known CVEs in installed packages | `--scan-cve` via vendor OVAL feed or `dnf updateinfo` | ✅ |
 | 3. Patching | Install security updates only | `--fix-cve` | ✅ |
 | 4. Runtime detection | auditd / AIDE / fail2ban modules | FAZ 7 | 🔜 |
@@ -65,8 +66,11 @@ posture* tool, not a full security stack.
 ### Harden one machine (today, ✅)
 
 ```
---scan      read-only: oscap eval → score + HTML/JSON report → ./reports/
---dry-run   read-only: same eval, prints failing rules by severity
+--scan      read-only combined posture scan: compliance (oscap eval) → Lynis
+            audit → CVE scan in one run; missing layers (no lynis / no OVAL
+            feed) are skipped with a warning; score + HTML/JSON report →
+            ./reports/ (--scan-compliance = compliance layer alone, old behavior)
+--dry-run   read-only: same compliance eval, prints failing rules by severity
 --apply     confirm → pre-hook → BACKUP → baseline scan → oscap --remediate
             → verification scan → before/after score → post-hook
             → (optional) arm dead-man timer

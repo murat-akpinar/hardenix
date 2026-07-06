@@ -10,7 +10,7 @@ hardening (`--scan` / `--apply` / `--unapply`) and CVE management (`--scan-cve` 
 
 | Path | What |
 |------|------|
-| `linuxharden.sh` | The entire tool (~1900 lines, bash, `set -euo pipefail`). `main()` at the bottom dispatches modes: `run_install_deps`, `run_scan`, `run_scan_cve`, `run_fix_cve`, `run_apply`, `run_unapply`, `run_uninstall`, `run_confirm` (+ `run_*_arch` fallbacks). |
+| `linuxharden.sh` | The entire tool (~2100 lines, bash, `set -euo pipefail`). `main()` at the bottom dispatches modes: `run_install_deps`, `run_scan_full`, `run_scan`, `run_scan_lynis`, `run_scan_cve`, `run_fix_cve`, `run_apply`, `run_unapply`, `run_uninstall`, `run_confirm` (+ `run_*_arch` fallbacks). |
 | `profiles/*.yml` | One per distro (9). Parsed by `parse_conf()` (python3 + PyYAML). Auto-selected as `${DISTRO_ID}-${DISTRO_VERSION}.yml` by `detect_distro()`. |
 | `todo/plan.md` | Script roadmap (FAZ 0–10; FAZ 0–6 done). Turkish. |
 | `todo/webui-plan.md` | Web UI plan (FAZ W0–W8, not started). Its design decisions are binding. |
