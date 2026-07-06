@@ -1886,9 +1886,9 @@ run_unapply() {
 # ── Uninstall ─────────────────────────────────────────────────────────────────
 
 run_uninstall() {
-    log_section "Reverting Hardening + Removing OpenSCAP"
+    log_section "Reverting Hardening + Removing OpenSCAP/Lynis"
     echo -e "  ${YELLOW}${BOLD}WARNING:${NC} Hardening settings will be reverted first, then"
-    echo -e "  OpenSCAP and SCAP content packages will be removed."
+    echo -e "  OpenSCAP, SCAP content and Lynis packages will be removed."
     echo -e "  You will no longer be able to run ${BOLD}--scan${NC} or ${BOLD}--apply${NC}."
     echo ""
     confirm "Continue?" || { log_warn "Aborted."; exit 0; }
@@ -1906,7 +1906,10 @@ run_uninstall() {
 
     # Step 2: remove the OpenSCAP tooling.
     echo ""
-    log_info "Removing OpenSCAP packages..."
+    log_info "Removing OpenSCAP/Lynis packages..."
+
+    local lynis_rm=""
+    command -v lynis &>/dev/null && lynis_rm="$LYNIS_PKG"
 
     # Note: stderr is intentionally NOT suppressed — a silent `|| true` here
     # once masked an apt-lock failure and reported a removal that never happened.
@@ -1914,25 +1917,25 @@ run_uninstall() {
     # shellcheck disable=SC2086
     case "$PKG_MANAGER" in
         apt-get)
-            apt-get remove -y $OSCAP_PKG $SSG_PKG || rc=$?
+            apt-get remove -y $OSCAP_PKG $SSG_PKG $lynis_rm || rc=$?
             apt-get autoremove -y || true
             ;;
         dnf)
-            dnf remove -y $OSCAP_PKG $SSG_PKG || rc=$?
+            dnf remove -y $OSCAP_PKG $SSG_PKG $lynis_rm || rc=$?
             ;;
         zypper)
-            zypper remove -y $OSCAP_PKG $SSG_PKG || rc=$?
+            zypper remove -y $OSCAP_PKG $SSG_PKG $lynis_rm || rc=$?
             ;;
         pacman)
-            pacman -Rns --noconfirm openscap || rc=$?
+            pacman -Rns --noconfirm openscap $lynis_rm || rc=$?
             ;;
     esac
 
     if [[ $rc -ne 0 ]]; then
-        log_error "Package removal failed (exit $rc) — OpenSCAP may still be installed."
+        log_error "Package removal failed (exit $rc) — packages may still be installed."
         exit "$rc"
     fi
-    log_info "OpenSCAP packages removed."
+    log_info "OpenSCAP/Lynis packages removed."
     log_warn "A reboot is strongly recommended."
 }
 
