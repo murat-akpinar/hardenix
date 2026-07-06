@@ -59,7 +59,7 @@ Lynis raporu `/var/log/lynis-report.dat` (key=value; `hardening_index=NN`,
   `run_install_deps(component)` — `component ∈ all|openscap|lynis`, varsayılan `all`;
   MODE değerleri: `install`, `install_openscap`, `install_lynis`.
 
-- [ ] **Step 1: 9 profile `packages.lynis` ekle**
+- [x] **Step 1: 9 profile `packages.lynis` ekle**
 
 Her `profiles/*.yml` dosyasında `packages:` bölümüne `lynis:` satırı eklenir.
 Debian/Ubuntu/openSUSE/Fedora/Arch için:
@@ -78,7 +78,7 @@ packages:
   lynis: lynis   # EPEL'de — eksikse önce: dnf install -y epel-release
 ```
 
-- [ ] **Step 2: Globals bloğuna `LYNIS_PKG` ekle**
+- [x] **Step 2: Globals bloğuna `LYNIS_PKG` ekle**
 
 `linuxharden.sh` üst blokta `PKG_MANAGER="" OSCAP_PKG="" ...` satırının bulunduğu
 "Populated by parse_conf" grubuna:
@@ -87,7 +87,7 @@ packages:
 LYNIS_PKG=""            # packages.lynis (default: lynis) — for --install / --scan-lynis
 ```
 
-- [ ] **Step 3: `parse_conf()` python bölümüne LYNIS_PKG çıktısı ekle**
+- [x] **Step 3: `parse_conf()` python bölümüne LYNIS_PKG çıktısı ekle**
 
 `print(f'SSG_PKG=...')` satırından hemen sonra:
 
@@ -95,7 +95,7 @@ LYNIS_PKG=""            # packages.lynis (default: lynis) — for --install / --
 print(f'LYNIS_PKG={q(pkgs.get("lynis","lynis"))}')
 ```
 
-- [ ] **Step 4: `parse_args()` yeni modlar**
+- [x] **Step 4: `parse_args()` yeni modlar**
 
 `--install)   MODE="install" ;;` satırının altına:
 
@@ -104,7 +104,7 @@ print(f'LYNIS_PKG={q(pkgs.get("lynis","lynis"))}')
             --install-lynis)    MODE="install_lynis" ;;
 ```
 
-- [ ] **Step 5: `usage()` güncelle**
+- [x] **Step 5: `usage()` güncelle**
 
 Modes bölümünde `--install` satırını değiştir ve iki satır ekle:
 
@@ -114,7 +114,7 @@ Modes bölümünde `--install` satırını değiştir ve iki satır ekle:
     echo "  --install-lynis     Install only Lynis (audit engine)"
 ```
 
-- [ ] **Step 6: `install_lynis_pkg()` fonksiyonunu ekle**
+- [x] **Step 6: `install_lynis_pkg()` fonksiyonunu ekle**
 
 `run_install_deps()` fonksiyonunun hemen ÜSTÜNE:
 
@@ -157,7 +157,7 @@ install_lynis_pkg() {
 }
 ```
 
-- [ ] **Step 7: `run_install_deps()` fonksiyonunu component parametreli tam haliyle değiştir**
+- [x] **Step 7: `run_install_deps()` fonksiyonunu component parametreli tam haliyle değiştir**
 
 Mevcut fonksiyonun TAMAMI şununla değiştirilir (pm/py_pkg türetme, universe,
 apt update, python3-yaml blokları aynen korunur — yalnız başlık, arch dalı ve
@@ -271,7 +271,7 @@ run_install_deps() {
 }
 ```
 
-- [ ] **Step 8: `main()` install dispatch**
+- [x] **Step 8: `main()` install dispatch**
 
 Mevcut `if [[ "$MODE" == "install" ]]; then run_install_deps; return; fi` bloğu
 şununla değiştirilir:
@@ -284,7 +284,7 @@ Mevcut `if [[ "$MODE" == "install" ]]; then run_install_deps; return; fi` bloğu
     esac
 ```
 
-- [ ] **Step 9: Doğrula**
+- [x] **Step 9: Doğrula**
 
 ```
 wsl bash -n ./linuxharden.sh                                  → sessiz (exit 0)
@@ -292,7 +292,7 @@ wsl bash ./linuxharden.sh --help | grep -c "install-"         → 2
 grep -c "lynis:" profiles/*.yml                               → her dosyada 1 (9 dosya)
 ```
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add linuxharden.sh profiles/
@@ -313,7 +313,7 @@ git commit -m "feat: add --install-lynis/--install-openscap; --install now inclu
   yeniden kullanır), `print_lynis_summary(dat_path)`, readonly `LYNIS_REPORT_DAT`,
   MODE `scan_lynis`.
 
-- [ ] **Step 1: Constant ekle**
+- [x] **Step 1: Constant ekle**
 
 Üstteki `readonly STATE_FILE=...` satırının altına:
 
@@ -321,7 +321,7 @@ git commit -m "feat: add --install-lynis/--install-openscap; --install now inclu
 readonly LYNIS_REPORT_DAT="/var/log/lynis-report.dat"   # written by `lynis audit system`
 ```
 
-- [ ] **Step 2: `parse_args()` + `usage()`**
+- [x] **Step 2: `parse_args()` + `usage()`**
 
 parse_args'ta `--scan)` satırının altına:
 
@@ -335,7 +335,7 @@ usage()'da `--scan-cve` satırının üstüne:
     echo "  --scan-lynis        Lynis audit only: hardening index (0-100) + warnings"
 ```
 
-- [ ] **Step 3: Yeni bölümü ekle — `run_scan_cve()` fonksiyonu ile "Security Patching" yorum bloğu arasına**
+- [x] **Step 3: Yeni bölümü ekle — `run_scan_cve()` fonksiyonu ile "Security Patching" yorum bloğu arasına**
 
 ```bash
 # ── Lynis Audit (second-opinion engine) ─────────────────────────────────────────
@@ -393,7 +393,7 @@ run_scan_lynis() {
 }
 ```
 
-- [ ] **Step 4: `main()` — skip listesi + dispatch**
+- [x] **Step 4: `main()` — skip listesi + dispatch**
 
 XCCDF hazırlık koşulundaki mod listesine `scan_lynis` ekle (mevcut koşul
 `"$MODE" != "scan_cve" && "$MODE" != "fix_cve"` kısmına):
@@ -409,14 +409,14 @@ Dispatch case'ine `scan_cve)` satırının üstüne:
         scan_lynis)    run_scan_lynis ;;
 ```
 
-- [ ] **Step 5: Doğrula**
+- [x] **Step 5: Doğrula**
 
 ```
 wsl bash -n ./linuxharden.sh                                  → exit 0
 wsl bash ./linuxharden.sh --help | grep -c "scan-lynis"       → 1
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add linuxharden.sh
@@ -440,7 +440,7 @@ git commit -m "feat: add --scan-lynis audit mode (hardening index + warnings)"
   `LAST_SCAN_ARF` (path); `run_scan_full()`; MODE'lar: `scan` (artık birleşik),
   `scan_compliance`, `scan_compliance_arch`.
 
-- [ ] **Step 1: Globals**
+- [x] **Step 1: Globals**
 
 "Runtime flags" bloğuna (`MIN_SCORE=""` satırının altına):
 
@@ -449,7 +449,7 @@ DEFER_MIN_SCORE=false   # true during --scan (combined): gate runs after all lay
 LAST_SCAN_ARF=""        # set by run_scan; consumed by run_scan_full's final gate
 ```
 
-- [ ] **Step 2: `parse_args()` + `usage()`**
+- [x] **Step 2: `parse_args()` + `usage()`**
 
 parse_args: `--scan)` satırının altına (Task 2'nin scan-lynis satırının üstü/altı fark etmez):
 
@@ -464,7 +464,7 @@ usage(): `--scan` satırını değiştir, altına compliance satırı ekle:
     echo "  --scan-compliance   Compliance scan only (OpenSCAP)"
 ```
 
-- [ ] **Step 3: `parse_conf()` arch remap güncelle**
+- [x] **Step 3: `parse_conf()` arch remap güncelle**
 
 Mevcut satır:
 
@@ -482,7 +482,7 @@ Yeni:
         esac
 ```
 
-- [ ] **Step 4: `enforce_min_score()` ekle + `run_scan()` gate'ini değiştir**
+- [x] **Step 4: `enforce_min_score()` ekle + `run_scan()` gate'ini değiştir**
 
 `get_score()` fonksiyonunun (Score Helpers bölümü) hemen altına:
 
@@ -510,7 +510,7 @@ blok (if [[ -n "$MIN_SCORE" ]] ... fi) şununla değiştirilir:
     [[ "$DEFER_MIN_SCORE" == true ]] || enforce_min_score "$arf_file"
 ```
 
-- [ ] **Step 5: `run_scan_full()` ekle — Task 2'de eklenen Lynis bölümünün altına**
+- [x] **Step 5: `run_scan_full()` ekle — Task 2'de eklenen Lynis bölümünün altına**
 
 ```bash
 # ── Combined Posture Scan (--scan) ──────────────────────────────────────────────
@@ -540,7 +540,7 @@ run_scan_full() {
 }
 ```
 
-- [ ] **Step 6: Arch varyantları**
+- [x] **Step 6: Arch varyantları**
 
 Mevcut `run_scan_arch()` tek satırlık tanımı şununla değiştirilir:
 
@@ -562,7 +562,7 @@ run_scan_compliance_arch() {
 }
 ```
 
-- [ ] **Step 7: `main()` dispatch**
+- [x] **Step 7: `main()` dispatch**
 
 ```bash
     case "$MODE" in
@@ -581,7 +581,7 @@ run_scan_compliance_arch() {
     esac
 ```
 
-- [ ] **Step 8: Doğrula**
+- [x] **Step 8: Doğrula**
 
 ```
 wsl bash -n ./linuxharden.sh                                    → exit 0
@@ -589,7 +589,7 @@ wsl bash ./linuxharden.sh --help | grep -c "scan-compliance"    → 1
 grep -c "run_scan_full" linuxharden.sh                          → 2 (tanım + dispatch)
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add linuxharden.sh
@@ -607,7 +607,7 @@ git commit -m "feat: make --scan a combined posture scan; add --scan-compliance"
 - Consumes: `LYNIS_PKG` (Task 1).
 - Produces: davranış — lynis kuruluysa kaldırılır; değilse paket komutlarına girmez.
 
-- [ ] **Step 1: `run_uninstall()` düzenle**
+- [x] **Step 1: `run_uninstall()` düzenle**
 
 Başlıktaki uyarı metnini güncelle:
 
@@ -653,7 +653,7 @@ Başlıktaki uyarı metnini güncelle:
     log_info "OpenSCAP/Lynis packages removed."
 ```
 
-- [ ] **Step 2: Doğrula + Commit**
+- [x] **Step 2: Doğrula + Commit**
 
 ```
 wsl bash -n ./linuxharden.sh   → exit 0
@@ -672,9 +672,9 @@ git commit -m "feat: remove lynis on --uninstall"
 
 **Interfaces:** —
 
-- [ ] **Step 1: `SCRIPT_VERSION="1.1.0"` → `"1.2.0"`**
+- [x] **Step 1: `SCRIPT_VERSION="1.1.0"` → `"1.2.0"`**
 
-- [ ] **Step 2: README.md**
+- [x] **Step 2: README.md**
 
 Parameters tablosunda `--install` ve `--scan` satırlarını güncelle, yeni satırları ekle:
 
@@ -702,7 +702,7 @@ Features bölümüne (CVE bloğunun altına) yeni alt bölüm:
 
 Not: `Supported Distributions` tablosundaki Arch satırına " + Lynis audit" ibaresi eklenir.
 
-- [ ] **Step 3: README_TR.md — aynı içerik Türkçe**
+- [x] **Step 3: README_TR.md — aynı içerik Türkçe**
 
 Parametre tablosu satırları:
 
@@ -718,7 +718,7 @@ Parametre tablosu satırları:
 Özellikler bölümüne eşdeğer "Denetim — ikinci görüş (Lynis)" alt bölümü eklenir
 (Step 2'deki metnin Türkçesi).
 
-- [ ] **Step 4: docs/script-internals.md**
+- [x] **Step 4: docs/script-internals.md**
 
 "Modes" bölümüne `--scan-lynis` ve birleşik `--scan` anlatımı, `--install`
 ailesine component parametresi notu eklenir; pipeline şemasındaki dispatch satırı
@@ -728,12 +728,12 @@ yeni modlarla güncellenir. docs/architecture.md katman tablosuna satır eklenir
 | 1b. Second-opinion audit | Lynis hardening index, warnings | `--scan-lynis` (also inside `--scan`) | ✅ |
 ```
 
-- [ ] **Step 5: CLAUDE.md haritası**
+- [x] **Step 5: CLAUDE.md haritası**
 
 Map tablosundaki `linuxharden.sh` satırında mode listesine `run_scan_full`,
 `run_scan_lynis` eklenir.
 
-- [ ] **Step 6: todo/TESTING.md — smoke döngüsüne Lynis satırları**
+- [x] **Step 6: todo/TESTING.md — smoke döngüsüne Lynis satırları**
 
 "Smoke test" bloğunun altına:
 
@@ -742,7 +742,7 @@ sudo bash linuxharden.sh --scan-lynis          # hardening index üretmeli
 sudo bash linuxharden.sh --scan                # 3 katman: compliance + lynis + cve
 ```
 
-- [ ] **Step 7: todo/webui-plan.md — Notlar bölümüne tek satır**
+- [x] **Step 7: todo/webui-plan.md — Notlar bölümüne tek satır**
 
 ```markdown
 - v1.2.0'dan itibaren script'te `--scan-lynis` var: FAZ W5'teki Lynis işi artık
@@ -750,7 +750,7 @@ sudo bash linuxharden.sh --scan                # 3 katman: compliance + lynis + 
   `reports/lynis_*.dat` dosyasını çeker (diğer scan işleriyle aynı kalıp).
 ```
 
-- [ ] **Step 8: Doğrula + Commit**
+- [x] **Step 8: Doğrula + Commit**
 
 ```
 wsl bash -n ./linuxharden.sh   → exit 0
@@ -766,23 +766,23 @@ git commit -m "docs: document lynis integration; bump version to 1.2.0"
 Bu görev commit üretmez; `todo/TESTING.md` prosedürünün Lynis genişletmesidir.
 Snapshot'a dönülebilir VM'de sırayla:
 
-- [ ] `--install` → openscap **ve** lynis kurulu (`command -v lynis`)
-- [ ] `--scan-lynis` → hardening index + warnings özeti; `reports/lynis_*.dat` oluştu
-- [ ] `--scan` → üç katman sırayla çalıştı (compliance skoru ~%65 baseline, lynis
+- [x] `--install` → openscap **ve** lynis kurulu (`command -v lynis`)
+- [x] `--scan-lynis` → hardening index + warnings özeti; `reports/lynis_*.dat` oluştu
+- [x] `--scan` → üç katman sırayla çalıştı (compliance skoru ~%65 baseline, lynis
       index, CVE özeti); `--min-score 99` ile exit code 2 ve üç katmanın DA çalıştığı
       doğrulanır (gate en sonda)
-- [ ] `--scan-compliance` → yalnız OpenSCAP çıktısı (eski davranışla birebir)
-- [ ] lynis'i kaldırıp (`apt-get remove lynis`) `--scan` → "skipping audit layer"
+- [x] `--scan-compliance` → yalnız OpenSCAP çıktısı (eski davranışla birebir)
+- [x] lynis'i kaldırıp (`apt-get remove lynis`) `--scan` → "skipping audit layer"
       uyarısıyla diğer katmanlar çalışıyor
-- [ ] `--install-lynis` → yalnız lynis kuruldu
-- [ ] `--uninstall` → lynis + openscap kalktı
-- [ ] **Stale-report koruması:** `--scan-lynis` iki kez çalıştır → lynis'i boz
+- [x] `--install-lynis` → yalnız lynis kuruldu
+- [x] `--uninstall` → lynis + openscap kalktı
+- [x] **Stale-report koruması:** `--scan-lynis` iki kez çalıştır → lynis'i boz
       (`chmod -x $(command -v lynis)`) → `--scan-lynis` eski raporu basmak yerine
       "did not produce a fresh report" hatası veriyor (exit 1)
-- [ ] `--confirm` (deadman yokken) ve `--help` exit code **0** dönüyor (EXIT-trap fix)
-- [ ] (Varsa Rocky 9 kutusu) EPEL'siz `--install` → lynis uyarı + exit 0; EPEL sonrası
+- [x] `--confirm` (deadman yokken) ve `--help` exit code **0** dönüyor (EXIT-trap fix)
+- [x] (Varsa Rocky 9 kutusu) EPEL'siz `--install` → lynis uyarı + exit 0; EPEL sonrası
       `--install-lynis` → başarılı
-- [ ] Smoke döngüsü (TESTING.md) hâlâ yeşil: scan → dry-run → apply L1 → scan → unapply → scan
+- [x] Smoke döngüsü (TESTING.md) hâlâ yeşil: scan → dry-run → apply L1 → scan → unapply → scan
 
 **Geçit:** hepsi ✅ → `feature/lynis` → `main` merge.
 
@@ -796,3 +796,22 @@ Snapshot'a dönülebilir VM'de sırayla:
 - JSON rapora lynis alanı eklemek v1'de yok — `.dat` kopyası webui'nin (2.0)
   `parse_lynis_report()` girdisi olarak yeterli.
 - Web UI + Ansible entegrasyonu → 2.0 (`todo/webui-plan.md`).
+
+---
+
+## VM Geçidi Sonuçları (2026-07-07)
+
+- **Ubuntu 24.04.4** (192.168.1.151, temiz kutu): install → scan-lynis (index 58/100)
+  → birleşik scan (65.5% / 58 / 340 CVE) → min-score 99: exit 2 + 3 katman koştu →
+  scan-compliance izole → lynis'siz scan: skip uyarısı → install-lynis → stale-report
+  koruması: exit 1 → dry-run → apply L1: 68.5%→**93.4%**, deadman 15dk armed →
+  confirm: timer iptal, exit 0 → unapply: **67.0%** (tarihsel değerle birebir) →
+  uninstall: oscap+lynis kaldırıldı. Kutu temiz bırakıldı.
+- **Rocky 9.8** (192.168.1.190): EPEL'siz install → lynis uyarı + EPEL ipucu + exit 0 ✓
+  → epel-release + install-lynis → lynis 3.1.7 ✓ → birleşik scan (47.1% / 66 / dnf
+  errata) ✓ → confirm (deadman yokken) exit 0 ✓. Kutuda lynis+epel kuruldu, bırakıldı.
+- **Geçitte yakalanıp düzeltilen:** Windows checkout'tan deploy'da CRLF (core.autocrlf)
+  → `.gitattributes` ile `*.sh`/`*.yml` eol=lf zorlandı (5ae2304).
+- **Bilinen kozmetik (main'de de var, ertelendi):** `revert_hardening`'de
+  `xargs -I{} log_info` shell fonksiyonunu çağıramıyor → "sysctl reloaded" mesajı
+  yerine stderr'e xargs hatası düşüyor; işlev etkilenmiyor.
