@@ -776,6 +776,10 @@ Snapshot'a dönülebilir VM'de sırayla:
       uyarısıyla diğer katmanlar çalışıyor
 - [ ] `--install-lynis` → yalnız lynis kuruldu
 - [ ] `--uninstall` → lynis + openscap kalktı
+- [ ] **Stale-report koruması:** `--scan-lynis` iki kez çalıştır → lynis'i boz
+      (`chmod -x $(command -v lynis)`) → `--scan-lynis` eski raporu basmak yerine
+      "did not produce a fresh report" hatası veriyor (exit 1)
+- [ ] `--confirm` (deadman yokken) ve `--help` exit code **0** dönüyor (EXIT-trap fix)
 - [ ] (Varsa Rocky 9 kutusu) EPEL'siz `--install` → lynis uyarı + exit 0; EPEL sonrası
       `--install-lynis` → başarılı
 - [ ] Smoke döngüsü (TESTING.md) hâlâ yeşil: scan → dry-run → apply L1 → scan → unapply → scan
