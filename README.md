@@ -351,6 +351,15 @@ End-to-end runs (scan → apply → unapply → CVE scan) on real machines:
 - **`--scan-cve`** (Canonical USN OVAL): 0 CVEs on a fully-patched box (matches `apt`).
   Detection verified by downgrading `curl` → **8 advisories / 27 CVEs** caught;
   **`--fix-cve`** patched them → back to 0.
+- **v1.2.0 (Lynis) validation run:**
+  - **`--install`** set up OpenSCAP + SSG + **Lynis** in one shot
+  - **`--scan` (combined):** compliance 65.5 % + Lynis hardening index **58/100**
+    + 340 known CVEs in a single run; `--min-score 99` exited 2 with all three
+    layers still executed (the gate is enforced last)
+  - **`--apply --level 1 --deadman 15`:** 68.5 % → **93.4 %**; `--confirm`
+    cancelled the timer; `--unapply` → 67.0 %
+  - Stale-report guard: with lynis broken mid-cycle, `--scan-lynis` failed
+    loudly (exit 1) instead of re-printing the previous index
 
 ### Rocky Linux 9.8 (Blue Onyx)
 - Kernel `5.14.0-687.10.1.el9_8` · oscap 1.3.13 · profile `cis` / `cis_server_l1`
@@ -358,6 +367,12 @@ End-to-end runs (scan → apply → unapply → CVE scan) on real machines:
 - **`--apply --level 1`:** 58.7 % → **98.1 %** (+39.4)
 - **`--scan-cve`** (native `dnf updateinfo` errata): **39 CVEs / 7 advisories**
   (34 Important · 5 Moderate) — OVAL is not used on RHEL rebuilds (it over-reports).
+- **v1.2.0 (Lynis) validation run:**
+  - **`--install` without EPEL:** degrades gracefully — warning + EPEL hint,
+    **exit 0** (compliance/CVE features unaffected); after `epel-release`,
+    `--install-lynis` installed Lynis 3.1.7
+  - **`--scan` (combined):** compliance 47.1 % + Lynis hardening index **66/100**
+    + CVEs via native `dnf updateinfo` in a single run
 
 > Numbers vary with how up to date the machine is; CVE counts reflect pending
 > vendor security advisories at scan time.

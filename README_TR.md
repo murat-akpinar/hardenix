@@ -349,6 +349,15 @@ Gerçek makinelerde uçtan uca çalıştırmalar (scan → apply → unapply →
 - **`--scan-cve`** (Canonical USN OVAL): tam yamalı kutuda 0 CVE (`apt` ile uyumlu).
   Tespit doğrulaması: `curl` eski sürüme düşürüldü → **8 advisory / 27 CVE** yakalandı;
   **`--fix-cve`** yamaladı → tekrar 0.
+- **v1.2.0 (Lynis) doğrulama turu:**
+  - **`--install`** tek seferde OpenSCAP + SSG + **Lynis** kurdu
+  - **`--scan` (birleşik):** tek çalıştırmada compliance %65.5 + Lynis sıkılaştırma
+    endeksi **58/100** + 340 bilinen CVE; `--min-score 99` üç katmanı da
+    çalıştırdıktan sonra exit 2 verdi (gate en sonda uygulanır)
+  - **`--apply --level 1 --deadman 15`:** %68.5 → **%93.4**; `--confirm` timer'ı
+    iptal etti; `--unapply` → %67.0
+  - Bayat rapor koruması: lynis bozukken `--scan-lynis` eski endeksi basmak
+    yerine sesli şekilde hata verdi (exit 1)
 
 ### Rocky Linux 9.8 (Blue Onyx)
 - Kernel `5.14.0-687.10.1.el9_8` · oscap 1.3.13 · profil `cis` / `cis_server_l1`
@@ -356,6 +365,12 @@ Gerçek makinelerde uçtan uca çalıştırmalar (scan → apply → unapply →
 - **`--apply --level 1`:** %58.7 → **%98.1** (+39.4)
 - **`--scan-cve`** (native `dnf updateinfo` errata): **39 CVE / 7 advisory**
   (34 Important · 5 Moderate) — RHEL klonlarında OVAL kullanılmaz (aşırı raporlar).
+- **v1.2.0 (Lynis) doğrulama turu:**
+  - **EPEL'siz `--install`:** zarif düşüş — uyarı + EPEL ipucu, **exit 0**
+    (compliance/CVE özellikleri etkilenmez); `epel-release` sonrası
+    `--install-lynis` Lynis 3.1.7'yi kurdu
+  - **`--scan` (birleşik):** tek çalıştırmada compliance %47.1 + Lynis
+    sıkılaştırma endeksi **66/100** + native `dnf updateinfo` ile CVE'ler
 
 > Sayılar makinenin ne kadar güncel olduğuna göre değişir; CVE sayıları tarama
 > anındaki bekleyen satıcı güvenlik advisory'lerini yansıtır.
