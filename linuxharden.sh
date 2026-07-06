@@ -8,6 +8,7 @@ readonly BACKUP_BASE="/var/lib/linuxharden"
 readonly REPORT_DIR="$(pwd)/reports"
 readonly TMP_DIR="/tmp/linuxharden_$$"
 readonly STATE_FILE="/var/lib/linuxharden/applied_level"   # records the applied hardening level
+readonly LYNIS_REPORT_DAT="/var/log/lynis-report.dat"   # written by `lynis audit system`
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'; BOLD='\033[1m'
@@ -88,6 +89,7 @@ usage() {
     echo "  --install-lynis     Install only Lynis (audit engine)"
     echo "  --uninstall         Revert hardening, then remove OpenSCAP + SCAP packages"
     echo "  --scan              Scan system compliance and generate report"
+    echo "  --scan-lynis        Lynis audit only: hardening index (0-100) + warnings"
     echo "  --scan-cve          Scan installed packages for known CVEs (OVAL feed)"
     echo "  --fix-cve           Install available security updates only"
     echo "  --apply             Apply hardening (creates backup, then verifies)"
@@ -144,6 +146,7 @@ parse_args() {
         case "$1" in
             --scan)      MODE="scan" ;;
             --scan-cve)  MODE="scan_cve" ;;
+            --scan-lynis)       MODE="scan_lynis" ;;
             --fix-cve)   MODE="fix_cve" ;;
             --install)   MODE="install" ;;
             --install-openscap) MODE="install_openscap" ;;
@@ -1426,6 +1429,60 @@ run_scan_cve() {
     esac
 }
 
+# ── Lynis Audit (second-opinion engine) ─────────────────────────────────────────
+
+# Print hardening index + warnings/suggestions from a lynis-report.dat file.
+print_lynis_summary() {
+    local dat="$1"
+    local index warns sugg
+    index=$(awk -F'=' '/^hardening_index=/{print $2}' "$dat")
+    warns=$(grep -c '^warning\[\]=' "$dat" || true)
+    sugg=$(grep -c '^suggestion\[\]=' "$dat" || true)
+
+    echo ""
+    echo -e "  ┌─ Lynis Audit Summary ────────────────────────┐"
+    printf  "  │  Hardening index   : %-23s │\n" "${index:-?}/100"
+    printf  "  │  Warnings          : %-23s │\n" "${warns:-0}"
+    printf  "  │  Suggestions       : %-23s │\n" "${sugg:-0}"
+    echo -e "  └──────────────────────────────────────────────┘"
+
+    if [[ "${warns:-0}" -gt 0 ]]; then
+        echo ""
+        echo -e "  ${BOLD}Warnings:${NC}"
+        grep '^warning\[\]=' "$dat" | cut -d'=' -f2- \
+            | awk -F'|' '{printf "    • [%s] %s\n", $1, $2}'
+    fi
+}
+
+# Run a full Lynis system audit and summarize the report.
+run_scan_lynis() {
+    log_section "Lynis Audit (second opinion)"
+
+    if ! command -v lynis &>/dev/null; then
+        log_error "lynis not found — run ${BOLD}--install-lynis${NC} first."
+        exit 1
+    fi
+
+    mkdir -p "$REPORT_DIR"
+    local ts; ts=$(date +%Y%m%d_%H%M%S)
+
+    local pid
+    lynis audit system --quiet --no-colors >/dev/null 2>&1 &
+    pid=$!
+    _spin "$pid" "Auditing system with Lynis..."
+    wait "$pid" 2>/dev/null || true
+
+    if [[ ! -f "$LYNIS_REPORT_DAT" ]]; then
+        log_error "Lynis produced no report ($LYNIS_REPORT_DAT)."
+        exit 1
+    fi
+
+    local report_copy="${REPORT_DIR}/lynis_${ts}.dat"
+    cp "$LYNIS_REPORT_DAT" "$report_copy"
+    log_info "Report : $report_copy"
+    print_lynis_summary "$LYNIS_REPORT_DAT"
+}
+
 # ── Security Patching (--fix-cve) ───────────────────────────────────────────────
 
 # List packages with a pending *security* update (per package manager).
@@ -1962,7 +2019,7 @@ main() {
 
     # CVE scan needs only oscap + the OVAL feed — skip the XCCDF/profile prep.
     if [[ "$MODE" != "unapply" && "$MODE" != "unapply_arch" && "$MODE" != "uninstall" \
-          && "$MODE" != "scan_cve" && "$MODE" != "fix_cve" ]]; then
+          && "$MODE" != "scan_cve" && "$MODE" != "fix_cve" && "$MODE" != "scan_lynis" ]]; then
         # Service protection only matters for --apply (it stops hardening from
         # removing/disabling a running service). --scan is read-only, so don't
         # prompt there — just report the real compliance state.
@@ -1976,6 +2033,7 @@ main() {
 
     case "$MODE" in
         scan)          run_scan ;;
+        scan_lynis)    run_scan_lynis ;;
         scan_cve)      run_scan_cve ;;
         fix_cve)       run_fix_cve ;;
         apply)         run_apply ;;
