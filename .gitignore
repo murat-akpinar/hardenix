@@ -11,3 +11,6 @@ reports/
 /tmp/
 *.arf
 *.bak
+
+# Superpowers scratch (SDD ledger)
+.superpowers/
