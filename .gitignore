@@ -1,9 +1,6 @@
 # Claude Code
 .claude/
 
-# Claude rules (local)
-.rules/
-
 # Scan reports (generated locally)
 reports/
 
