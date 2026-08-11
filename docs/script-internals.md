@@ -239,5 +239,5 @@ detect → exclude-rule-IDs template.
 - `oscap` exit codes are tolerated (`|| true`) where non-zero is informational
   (e.g. "fails found"), and hard-checked where it means the operation failed.
 - Verification gates for changes: `bash -n`, shellcheck, and the smoke cycle in
-  `todo/TESTING.md` (scan → dry-run → apply L1 → scan → unapply → scan on a
+  `todo.md` (scan → dry-run → apply L1 → scan → unapply → scan on a
   snapshot-restorable VM; Ubuntu 24.04 L2 baseline ≈ 65 %).

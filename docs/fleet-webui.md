@@ -1,7 +1,7 @@
 # Fleet Web UI — Target Architecture 🔜
 
 Status: **designed, not yet built.** The authoritative, phase-by-phase build plan
-is `todo/webui-plan.md` (FAZ W0–W8); its approved design decisions are binding.
+is the Web UI section of `todo.md` (FAZ W0–W8); its approved design decisions are binding.
 This document describes the *final state* that plan produces.
 
 ## What it is

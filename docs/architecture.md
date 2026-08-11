@@ -46,7 +46,7 @@ flowchart TB
 ## The layered security model
 
 The engine covers the first three layers of a defense-in-depth stack; the later
-layers are roadmap (see `todo/plan.md`):
+layers are roadmap (see `todo.md`):
 
 | Layer | What | How | Status |
 |-------|------|-----|--------|
@@ -129,7 +129,7 @@ hardenix/
 ├── profiles/               # one YAML per distro: SCAP profile IDs, OVAL feed,
 │                           #   backup dirs, exclusions, hooks
 ├── docs/                   # ← you are here: architecture & internals
-├── todo/                   # phased plans (Turkish): plan.md, webui-plan.md, TESTING.md
+├── todo.md                 # single planning doc (Turkish): backlog, web UI plan, tests
 ├── reports/                # generated scan output (gitignored)
 ├── webui/  🔜              # fleet layer: FastAPI app + Celery worker + compose
 │   ├── app/                #   routes, models, auth, templates
@@ -151,7 +151,7 @@ hardenix/
    `--unapply` restores the *exact* pre-apply state (including deleting files the
    hardening created), keeping only installed applications.
 4. **Additive evolution.** Features arrive as new flags/modes phased in
-   `todo/plan.md`, each with its own test gate; existing modes are not
+   `todo.md`, each with its own test gate; existing modes are not
    restructured (see `CLAUDE.md` hard constraints).
 5. **Orchestrate, don't fork.** The fleet layer treats the engine as an opaque,
    versioned artifact: deploy = SFTP push + sha256 verify; upgrade = redeploy.
