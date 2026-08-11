@@ -12,6 +12,8 @@ CLAUDE.md pointed at four rulebooks under .rules/ that do not exist in the repos
 
 - Add doc-link checker and git-cliff config ([37bc6d9](https://github.com/murat-akpinar/hardenix/commit/37bc6d98d64b441b865929e054dec3df2280c3f0))
 check-docs.py verifies that every relative Markdown link and anchor in the repo resolves; the docs cross-reference each other heavily and nothing caught a broken link before. cliff.toml generates CHANGELOG.md from the conventional commit history (v1.2.0 is already tagged).
+- Mark linuxharden.sh executable ([e3bae2b](https://github.com/murat-akpinar/hardenix/commit/e3bae2b1ab282a596f0527e32c261e9769907b9c))
+- Add vscode settings for todo.md formatting ([7319c62](https://github.com/murat-akpinar/hardenix/commit/7319c62dc4c0cedbe136e467ce9c5192f58111f0))
 ## [1.2.0] - 2026-07-06
 
 ### 🚀 Features
