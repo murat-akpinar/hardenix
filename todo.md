@@ -486,6 +486,59 @@ dönüyor. Tespit `detect_term_rows()` ile `main()`'e, substitution dışına al
 Bunu yalnız gerçek pty'de test etmek ortaya çıkardı; `bash -n` + shellcheck
 ikisi de yeşildi.
 
+### Tam özellik taraması — v1.3.1 ✅ (2026-08-15)
+
+Scriptin **her modu ve bayrağı** iki VM'de koşturuldu (Ubuntu 24.04.4 @ .151,
+Rocky 9.8 @ .190): 33 argüman/salt-okunur testi + 8 mutasyon testi + 5 kurulum
+yaşam döngüsü testi, kutu başına. Çıkış kodlarının tamamı beklendiği gibi.
+
+**Bulunan iki gerçek kusur:**
+
+1. **`--unapply` 9 profilden 8'inde tam geri döndürmüyordu.** `revert_hardening()`
+   yalnız `backup.config_dirs` kapsamındakini geri yükler; genişletilmiş liste
+   sadece `ubuntu-24.04.yml`'ye uygulanmıştı. Rocky'de ölçüm: bir `--level 1`
+   apply `/etc` altında **58 dosya** yazdı ve **hiçbiri** profilin yedek kümesinde
+   değildi. scan → apply → unapply → scan döngüsü sonunda baseline'da `fail` olan
+   **40 kural hâlâ `pass`** kaldı; %58.5 geri gelmedi, %73.5'te durdu.
+   → `fix(profiles)`: 8 profile remediation'ın gerçekten dokunduğu yollar eklendi
+   (12 → 42 yol). Rocky'de yeniden doğrulandı: **%75.0 → %98.1 → %75.0, takılı
+   kural 0.** Kasten dışarıda bırakılanlar: `/etc/passwd|shadow|group|gshadow`
+   (apply sonrası yapılan kullanıcı/parola değişikliklerini geri almak, bir
+   maxdays ayarının kalmasından çok daha kötü), üretilen cache'ler
+   (`ld.so.cache`, `hwdb.bin`) ve `config` dışındaki `/etc/selinux`.
+
+2. **`--fix-cve` başarı diyor ama yama devrede değil.** Rocky'de 156 paket
+   yamalandı, `dnf check-update --security` temiz döndü, ama kutu hâlâ eski
+   çekirdekle çalışıyordu (`687.10.1` çalışıyor / `687.39.1` kurulu) → `--scan-cve`
+   93 CVE göstermeye devam etti. Sayı doğruydu, mesaj eksikti.
+   → `feat(fix-cve)`: `reboot_pending_reason()` eklendi; çekirdek boşluğu varsa
+   "reboot edene kadar açıksın", yalnız kütüphaneler kullanımdaysa ayrı mesaj.
+   Ubuntu'da `services`, Rocky'de `kernel` sebebi doğru tespit edildi.
+
+**Doğrulanan davranışlar:** salt-okunur invaryantı (`--scan-compliance`,
+`--dry-run`, `--scan-cve`, `--scan-lynis` `/etc` ve `/var/lib/linuxharden`'a
+**0 değişiklik** yazdı) · `--level 1|2` gerçekten farklı profil kullanıyor
+(Ubuntu 103/125 fail, Rocky 108/193) · `--format json` yalnız `.json`, `both`
+ikisini üretiyor, JSON içi tutarlı (fail sayısı = listelenen kural sayısı) ·
+CVE motoru aileye göre doğru (Ubuntu OVAL/USN, Rocky native `dnf updateinfo`) ·
+dead-man kuruluyor, `--confirm` iptal ediyor, ikinci `--confirm` "iptal edilecek
+bir şey yok" diyor, timer gerçekten siliniyor · EPEL'siz Rocky'de
+`--install-lynis` sert hata + ipucu (exit 1), `--install` uyarıyla devam (exit 0) ·
+`--uninstall` → kaldırılmışken tarama anlaşılır hatayla duruyor → `--install` →
+skor aynı.
+
+**Yeni backlog maddeleri (bölüm 2'ye taşınacak):**
+
+- [ ] **OVAL feed cache'ini tazeleme yolu yok.** 24 saat cache'leniyor; yeni bir
+      USN çıkarsa `--scan-cve` bir gün boyunca eski veriyi raporlar. Elle
+      `rm -rf reports/oval-feed/` gerekiyor. `--refresh-feed` bayrağı.
+- [ ] **`--conf` profil/distro uyuşmazlığını uyarmıyor.** Rocky'de
+      `--conf profiles/arch.yml` sessizce "Arch basic" moduna düşüyor ve
+      "Arch: full SCAP not available" diyor — kutu Rocky. `meta.distro` ile
+      `DISTRO_ID` karşılaştırılıp uyarılmalı.
+- [ ] **Yedekler birikiyor (ölçüldü).** Ubuntu'da 4, Rocky'de 4 backup dizini
+      oluştu; hiçbiri budanmıyor → `--keep N` (bölüm 2, P0) maddesini doğruluyor.
+
 ### Bulgular (kalıcı, davranışı etkiler)
 
 - **Mask sırası:** boş sistemi hardenleyip **sonra** nginx/apache kurarsan servis maskeli

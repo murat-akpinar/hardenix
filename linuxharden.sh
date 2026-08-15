@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly SCRIPT_VERSION="1.3.0"
+readonly SCRIPT_VERSION="1.3.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly BACKUP_BASE="/var/lib/linuxharden"
@@ -1933,6 +1933,35 @@ security_updates() {
     esac
 }
 
+# Echo why a reboot is still needed for the patches to be live ("kernel" or
+# "services"), or return 1. Without this, --fix-cve reports success and
+# --scan-cve still lists the kernel CVEs, which reads like patching failed
+# silently — when in fact the box is simply still running the old kernel.
+reboot_pending_reason() {
+    local newest="" running; running=$(uname -r)
+    local boot_newest
+    boot_newest=$(find /boot -maxdepth 1 -name 'vmlinuz-*' -printf '%f\n' 2>/dev/null \
+                  | sed 's/^vmlinuz-//' | sort -V | tail -1)
+
+    case "$PKG_MANAGER" in
+        dnf|yum) newest=$(rpm -q kernel --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>/dev/null \
+                          | sort -V | tail -1) ;;
+        *)       newest="$boot_newest" ;;
+    esac
+
+    if [[ -n "$newest" && "$newest" != "$running" ]]; then echo "kernel"; return 0; fi
+
+    # No kernel gap, but the package manager may still know that running
+    # processes hold the old libraries.
+    case "$PKG_MANAGER" in
+        apt-get) [[ -f /var/run/reboot-required ]] && { echo "services"; return 0; } ;;
+        dnf|yum) if command -v needs-restarting &>/dev/null; then
+                     needs-restarting -r &>/dev/null || { echo "services"; return 0; }
+                 fi ;;
+    esac
+    return 1
+}
+
 run_fix_cve() {
     log_section "Security Patching (--fix-cve)"
 
@@ -1978,6 +2007,17 @@ run_fix_cve() {
         exit "$rc"
     fi
     log_info "Security updates applied."
+    local why
+    if why=$(reboot_pending_reason); then
+        if [[ "$why" == "kernel" ]]; then
+            log_warn "A newer kernel is installed but the machine is still running the old one."
+            echo -e "  ${BOLD}Reboot to activate it.${NC} Until then the box stays exposed to the kernel"
+            echo -e "  CVEs these updates fix, and ${BOLD}--scan-cve${NC} will keep reporting them."
+        else
+            log_warn "Updated libraries are still in use by running processes."
+            echo -e "  ${BOLD}A reboot is recommended${NC} so every patch takes effect."
+        fi
+    fi
     log_info "Verify with: ${BOLD}$(basename "$0") --scan-cve${NC}"
 }
 
