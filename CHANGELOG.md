@@ -10,6 +10,8 @@ On the Rocky 9.8 VM --fix-cve patched 156 packages and reported success, but --s
 The three gaps the full-feature sweep turned up, each verified on both VMs.
 - Tier the help output so --help fits one screen ([a841ca9](https://github.com/murat-akpinar/hardenix/commit/a841ca90a8175abeff092f62ca4c6d13179ee07a))
 23 flags on one screen was the same overwhelm problem as a 180-line scan: --help printed 44 rows plus the banner, two screens on a 24-row console with no scrollback. A usage error was worse — it dumped the whole help below the error, pushing the one line the operator actually needed off the top.
+- *(scan)* Report every engine up front and break failures down by severity ([78b45f3](https://github.com/murat-akpinar/hardenix/commit/78b45f3eb103f9ad6d6f4dcf0f40d5a22adade91))
+Two gaps the VM sweep surfaced.
 
 ### 🐛 Bug Fixes
 
