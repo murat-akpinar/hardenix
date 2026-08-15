@@ -25,42 +25,83 @@ imaja göm, sonra uygulamaları üstüne kur.
 
 ---
 
-## Özellikler
+## Hızlı başlangıç
 
-### Uyumluluk sıkılaştırması
-- **`--scan`** — Tam durum taraması: uyumluluk (CIS/ANSSI/STIG) + Lynis denetimi + bilinen CVE'ler; HTML/JSON rapor + skor (`--scan-compliance` = yalnızca uyumluluk katmanı)
-- **`--apply`** — Sıkılaştırma uygular; önce yedek alır, before/after skor gösterir
-- **`--unapply`** — Sistemi apply öncesi **tam** haline döndürür (config'ler **ve**
-  hardening'in kaldırdığı paketler; openscap'i ve eklenen uygulamaları korur)
-- **`--dry-run`** — Neyin değişeceğini severity'ye göre gösterir, sisteme dokunmaz
-- **`--level 1|2`** — CIS Level 1 (temel) veya Level 2 (sıkı, varsayılan)
+```bash
+git clone https://github.com/murat-akpinar/hardenix.git && cd hardenix
 
-### Açık yönetimi (CVE)
-- **`--scan-cve`** — Kurulu paketleri satıcı OVAL feed'iyle (örn. Ubuntu USN)
-  **bilinen CVE**'lere karşı tarar; severity gruplu özet + HTML rapor
-- **`--fix-cve`** — **Yalnızca** mevcut güvenlik güncellemelerini kurar, sonra doğrular
+sudo ./linuxharden.sh --install     # 1. tarama motorlarını kur (bir kez)
+sudo ./linuxharden.sh --scan        # 2. şu an neredeyiz?
+sudo ./linuxharden.sh --dry-run     # 3. --apply neyi değiştirirdi?
+sudo ./linuxharden.sh --apply       # 4. sıkılaştır — önce yedek alır
+sudo ./linuxharden.sh --unapply     #    fikrin mi değişti? geri al
+```
 
-### Denetim — ikinci görüş (Lynis)
-- **`--scan-lynis`** — [Lynis](https://github.com/CISOfy/lynis) sistem denetimi:
-  hardening index (0-100), uyarılar ve öneriler — OpenSCAP'ten bağımsız bir
-  ikinci görüş (ve Arch'ta kullanılabilen tek denetim motoru)
-- Düz **`--scan`** artık tüm salt-okunur katmanları tek seferde çalıştırır:
-  compliance + Lynis + CVE. Eksik katmanlar uyarıyla atlanır; eski tek-motorlu
-  davranış için `--scan-compliance` kullanın. `--min-score` hâlâ yalnızca
-  compliance skorunu kapı olarak kullanır.
+SSH ile eriştiğin bir makineyi mi sıkılaştırıyorsun? **`--deadman 15`** ekle ki
+değişiklikler seni kilitlerse kutu kendini geri alsın — bkz.
+[güvenli uzaktan sıkılaştırma](#güvenli-uzaktan-sıkılaştırma-dead-man-switch).
 
-### Güvenlik & otomasyon
-- **`--deadman <dk>` / `--confirm`** — Dead-man switch: N dakika içinde onaylanmazsa
-  otomatik geri alır — **uzaktan** sıkılaştırmayı SSH lockout'a karşı güvenli kılar
-- **`--yes`** — Etkileşimsiz (CI / gözetimsiz çalıştırma)
-- **`--min-score <N>`** — Skor N'in altındaysa hata koduyla çıkar (CI barajı)
-- **Çalışan servis koruması** — Aktif servisleri (NFS/SMB, **Apache/nginx**) tespit
-  edip onları kaldıracak/durduracak kuralları hariç tutmayı önerir
-- **Kurulum** — `--install` (OpenSCAP + SCAP içeriği + Lynis) / `--uninstall` (geri al, sonra kaldır)
+Beş mod ve beş seçenek neredeyse her çalıştırmayı karşılıyor; `--help` tam olarak
+bunu basar. Tamamı bir komut ötede:
+
+```bash
+./linuxharden.sh --help        # günlük set — tek ekrana sığar
+./linuxharden.sh --help all    # her mod ve seçenek, gruplanmış
+```
+
+---
+
+## Ne yapar
+
+| Katman | Cevapladığı soru | Modlar |
+|--------|------------------|--------|
+| **Uyumluluk sıkılaştırması** | Bu kutu tanınmış bir baseline'a göre yapılandırılmış mı? | `--apply` · `--unapply` · `--scan-compliance` |
+| **Güvenlik denetimi** | İkinci, bağımsız bir motor ne diyor? | `--scan-lynis` |
+| **Açık yönetimi** | Kurulu paketlerin hangisinde yayınlanmış CVE var? | `--scan-cve` · `--fix-cve` |
+
+`--scan` üç salt-okunur katmanı tek geçişte çalıştırır ve tek bir duruş kutusuyla
+biter. Eksik bir motor çalıştırmayı hataya düşürmek yerine uyarıyla atlanır;
+`--min-score` yalnızca uyumluluk skorunu kapı olarak kullanır.
+
+### Sıkılaştırma — `--apply` / `--unapply`
+
+- İlk değişiklikten **önce** yedek alır, sonra tekrar tarayıp before/after skoru
+  raporlar
+- `--unapply` sistemi apply öncesi **tam** haline döndürür: config'ler byte-byte,
+  servis enable/disable durumu ve sıkılaştırmanın kaldırdığı paketler. Sıkılaştırmanın
+  *eklediği* paketler — ve OpenSCAP'in kendisi — korunur: bu ayarları geri alır,
+  uygulama silmez
+- `--dry-run` başarısız kuralları severity'ye göre listeler, hiçbir şey değiştirmez
+- `--level 1` = temel, `--level 2` = sıkı (varsayılan)
+
+### Açık yönetimi — `--scan-cve` / `--fix-cve`
+
+- Kurulu paketleri satıcı OVAL feed'ine karşı kontrol eder (örn. Canonical USN);
+  RHEL klonları bunun yerine aşırı raporlamayan native `dnf updateinfo` kullanır
+- Severity gruplu özet + HTML rapor; `--fix-cve` **yalnızca** güvenlik
+  güncellemelerini kurar, sonra doğrular
+
+### Denetim — `--scan-lynis`
+
+- [Lynis](https://github.com/CISOfy/lynis) sıkılaştırma endeksi (0-100), uyarılar
+  ve öneriler — OpenSCAP'ten bağımsız bir ikinci görüş ve Arch'ta kullanılabilen
+  tek denetim motoru
+
+### Güvenlik
+
+- **Dead-man switch** (`--deadman <dk>` / `--confirm`) — erişiminin sürdüğünü
+  onaylamazsan otomatik geri alır. SSH üzerinden sıkılaştırmayı hayatta kalınabilir
+  kılan şey budur.
+- **Çalışan servis koruması** — aktif servisleri (NFS/SMB, **Apache/nginx**) tespit
+  edip onları kaldıracak veya durduracak kuralları hariç tutmayı önerir
+- **Salt-okunur gerçekten salt-okunurdur** — tüm tarama modları ve `--dry-run`
+  sisteme hiçbir şey yazmaz
+- Gözetimsiz çalıştırma için `--yes`, pipeline'ı kapıda durdurmak için `--min-score <N>`
 
 ### Yerleşik
-- **Exclusions** (kural/servis/path), **hooks** (pre/post/rollback),
-  profilden otomatik **XCCDF tailoring**
+
+Profil bazlı **exclusions** (kural / servis / path), **hooks** (pre-hardening /
+post-hardening / on-rollback) ve profilden üretilen **XCCDF tailoring** dosyası.
 
 ---
 
@@ -193,30 +234,55 @@ sudo ./linuxharden.sh --scan --min-score 90 || echo "baseline altında — deplo
 
 ## Parametreler
 
+`--help` ile aynı şekilde bölündü: önce günlük set, gerisi katlanmış halde.
+
+### Günlük
+
 | Parametre | Açıklama |
 |-----------|----------|
-| `--install` | Tespit edilen dağıtım için OpenSCAP + SCAP içeriği + Lynis kurar |
+| `--install` | Tarama motorlarını kurar: OpenSCAP + SCAP içeriği + Lynis |
+| `--scan` | Tam durum taraması: compliance + Lynis denetimi + bilinen CVE'ler (eksik katman atlanır) |
+| `--apply` | Sıkılaştırma uygular (yedek → uygula → doğrula) |
+| `--unapply` | Sistemi apply öncesi haline döndürür (OpenSCAP'i korur) |
+| `--fix-cve` | Yalnızca mevcut güvenlik güncellemelerini kurar |
+| `--level <1\|2>` | Sıkılaştırma seviyesi: `1` = CIS Level 1 (temel), `2` = CIS Level 2 (sıkı, varsayılan) |
+| `--dry-run` | `--apply`'ın neyi değiştireceğini severity'ye göre gösterir — hiçbir şey değiştirmez |
+| `--yes` | Her prompta evet varsayar (etkileşimsiz / CI) |
+| `--deadman <dk>` | `--apply` ile: `<dk>` dakika sonra `--confirm` yoksa otomatik geri al |
+| `--confirm` | Sıkılaştırmayı korur — bekleyen otomatik geri almayı iptal eder |
+
+<details>
+<summary><b>Geri kalan her şey</b> — tek katmanlı taramalar, raporlama, CI, ince ayar</summary>
+
+**Tek katman çalıştır.** `--scan` zaten üçünü birden yapıyor; birini tek başına
+istediğinde bunlara başvur.
+
+| Parametre | Açıklama |
+|-----------|----------|
+| `--scan-compliance` | Yalnız compliance taraması (OpenSCAP) |
+| `--scan-lynis` | Yalnız Lynis denetimi: hardening index (0-100) + uyarılar |
+| `--scan-cve` | Yalnız bilinen-CVE taraması (satıcı OVAL feed'i, RHEL klonlarında `dnf` errata) |
 | `--install-openscap` | Yalnız OpenSCAP + SCAP içeriği kurar |
 | `--install-lynis` | Yalnız Lynis kurar (RHEL ailesi: EPEL gerekir) |
 | `--uninstall` | Hardening'i geri alır, sonra OpenSCAP + SCAP paketlerini kaldırır |
-| `--apply` | Sıkılaştırma uygular (yedek → uygula → doğrula) |
-| `--unapply` | Sistemi apply öncesi haline döndürür (OpenSCAP'i korur) |
-| `--scan` | Tam durum taraması: compliance + Lynis denetimi + bilinen CVE'ler (eksik katman atlanır) |
-| `--scan-compliance` | Yalnız compliance taraması (OpenSCAP) |
-| `--scan-lynis` | Yalnız Lynis denetimi: hardening index (0-100) + uyarılar |
-| `--scan-cve` | Kurulu paketleri satıcı OVAL feed'iyle bilinen CVE'lere karşı tarar |
-| `--fix-cve` | Yalnızca mevcut güvenlik güncellemelerini kurar |
-| `--dry-run` | Başarısız kuralları severity gruplarına göre gösterir, sisteme dokunmaz (`--apply`'ı ima eder) |
-| `--level <1\|2>` | Sıkılaştırma seviyesi: `1` = CIS Level 1 (temel), `2` = CIS Level 2 (sıkı, varsayılan) |
+
+**Raporlama ve CI**
+
+| Parametre | Açıklama |
+|-----------|----------|
 | `--format <tip>` | `html` \| `json` \| `both` (varsayılan: html) |
-| `--deadman <dk>` | `--apply` ile: `<dk>` dakika sonra `--confirm` yoksa otomatik geri al |
-| `--confirm` | Bekleyen dead-man geri almasını iptal et (hardening'i koru) |
-| `--yes` | Onay promptlarını atla (etkileşimsiz / CI) |
+| `--min-score <N>` | Uyumluluk skoru N'in altındaysa `2` ile çık (CI barajı) |
 | `--full` | Listeyi ekrana kırpmak yerine tüm bulguları yazdır |
+
+**İnce ayar**
+
+| Parametre | Açıklama |
+|-----------|----------|
 | `--keep <N>` | `--apply` ile: yalnız en yeni N yedeği tut (varsayılan 5, `0` = hepsi) |
 | `--refresh-feed` | OVAL feed'ini 24 saatlik cache yerine yeniden indir |
-| `--min-score <N>` | `--scan` skoru N'in altındaysa hata koduyla çıkar (CI barajı) |
-| `--conf <dosya>` | Yerel .yml profil dosyası kullan |
+| `--conf <dosya>` | Gömülü profil yerine yerel bir .yml profili kullan |
+
+</details>
 
 ### Konsol dostu çıktı
 

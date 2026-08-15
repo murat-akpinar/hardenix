@@ -551,6 +551,44 @@ skor aynı.
       İki kutuda doğrulandı: `--conf profiles/arch.yml` uyarıyor, doğru profil 0 uyarı.
 - [x] **Yedekler birikiyor (ölçüldü).** ✅ v1.4.0 `--keep N` ile çözüldü (yukarı).
 
+### Yardım çıktısını katmanlama — v1.4.1 ✅ (2026-08-15)
+
+**Sorun:** v1.3.0'da `--scan`'i 183 → 29 satıra indirdik ama `--help`'e hiç
+dokunmamıştık. 11 mod + 12 seçenek = **44 satır** (+banner) → 24 satırlık
+konsolda iki ekran. Aynı problem, düzeltilmemiş yer. Dahası hata yolu daha
+kötüydü: `--bogus` yazınca önce hata basılıyor, sonra 44 satır yardım onu
+ekrandan kaydırıyordu — operatörün ihtiyacı olan tek satır kayboluyordu.
+
+**Karar:** bayrak silme yok (hepsi kullanımda ve dokümanlı), sunumu katmanla.
+
+- `usage()` → günlük set: 5 mod, 5 seçenek, 3 örnek. **22 satır.**
+- `usage_full()` → `--help all` (veya `full`): her bayrak, gruplu (modlar ·
+  seçenekler · tek katman · raporlama/CI · ince ayar · seviyeler · örnekler ·
+  çıkış kodları). 51 satır, opt-in.
+- `usage_error()` → hata + tek satır mod listesi + `--help` işareti. **Yardım
+  basmıyor**, çünkü basarsa hatanın kendisi ekrandan kayıyor.
+- `banner` artık `parse_args`'tan **sonra** çağrılıyor: yardım ve hata çıktıları
+  logonun altından değil ekranın tepesinden başlıyor.
+
+**Ölçüm (Git Bash, ANSI temizlenmiş):**
+
+| Çıktı | Satır | En geniş satır | Çıkış kodu |
+|---|---|---|---|
+| `--help` | **22** | 75 sütun | 0 |
+| `--help all` | 51 | 79 sütun | 0 |
+| argümansız | 22 (kısa yardım) | — | 1 |
+| `--bogus` | 4 | — | 1 |
+
+**README'ler:** `## Hızlı başlangıç` bloğu en üste alındı (klonla → install →
+scan → dry-run → apply → unapply); `Özellikler` bölümü `Ne yapar` başlığıyla
+katman tablosuna dönüştürüldü (Parametreler ile birebir tekrar ediyordu);
+`Parametreler` tablosu `--help` ile aynı şekilde ikiye bölündü — **Günlük** (10
+satır) açıkta, gerisi `<details>` altında üç grup halinde. Her iki dil de aynı.
+
+**Not:** shellcheck bu iş sırasında geliştirme makinesinde kurulu değildi;
+`bash -n` + `check-docs.py` + davranış ölçümleri yeşil. shellcheck bir sonraki
+VM turunda koşturulmalı.
+
 ### Bulgular (kalıcı, davranışı etkiler)
 
 - **Mask sırası:** boş sistemi hardenleyip **sonra** nginx/apache kurarsan servis maskeli

@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly SCRIPT_VERSION="1.4.0"
+readonly SCRIPT_VERSION="1.4.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly BACKUP_BASE="/var/lib/linuxharden"
@@ -140,7 +140,8 @@ stat_put() {
 banner() {
     # The ASCII art is 10 of the 24 rows on a plain console. Keep it where there
     # is room; fall back to one line where every row counts. Reads TERM_ROWS
-    # directly — --full has not been parsed yet when the banner prints.
+    # directly rather than term_height(): --full asks for complete findings, not
+    # for the logo.
     if [[ "$TERM_ROWS" -ne 0 && "$TERM_ROWS" -lt 30 ]]; then
         echo -e "${CYAN}${BOLD}hardenix${NC} ${BOLD}v${SCRIPT_VERSION}${NC} — OpenSCAP-based hardening"
         return
@@ -157,54 +158,106 @@ banner() {
     echo ""
 }
 
+# `--help` shows the five modes and five options that cover almost every run;
+# `--help all` shows the complete surface. The short form is kept at 22 printed
+# rows on purpose: it has to fit a 24-row physical console, the same constraint
+# that shapes the scan output. The banner is printed *after* parse_args(), so
+# neither help screen carries the ASCII art.
 usage() {
-    echo -e "${BOLD}Usage:${NC} $(basename "$0") [MODE] [OPTIONS]"
+    local me; me=$(basename "$0")
+    echo -e "${BOLD}Usage:${NC} ${me} <mode> [options]"
     echo ""
-    echo -e "${BOLD}Modes:${NC}"
-    echo "  --install           Install OpenSCAP + SCAP content + Lynis for this distro"
-    echo "  --install-openscap  Install only OpenSCAP + SCAP content"
-    echo "  --install-lynis     Install only Lynis (audit engine)"
-    echo "  --uninstall         Revert hardening, then remove OpenSCAP + SCAP packages"
-    echo "  --scan              Full posture scan: compliance + Lynis audit + known CVEs"
-    echo "  --scan-compliance   Compliance scan only (OpenSCAP)"
-    echo "  --scan-lynis        Lynis audit only: hardening index (0-100) + warnings"
-    echo "  --scan-cve          Scan installed packages for known CVEs (OVAL feed)"
-    echo "  --fix-cve           Install available security updates only"
-    echo "  --apply             Apply hardening (creates backup, then verifies)"
-    echo "  --unapply           Revert hardening settings (keeps OpenSCAP installed)"
+    echo -e "${BOLD}Modes${NC}"
+    echo "  --install      Install the scan engines (OpenSCAP + SCAP content + Lynis)"
+    echo "  --scan         Posture scan: compliance + Lynis audit + known CVEs"
+    echo "  --apply        Harden this system (takes a backup first)"
+    echo "  --unapply      Revert to the pre-apply state"
+    echo "  --fix-cve      Install pending security updates"
     echo ""
-    echo -e "${BOLD}Options:${NC}"
-    echo "  --dry-run           Preview what would change without applying (implies --apply)"
-    echo "  --level <1|2>       Hardening level: 1 = CIS Level 1 (basic), 2 = CIS Level 2 (strict, default)"
-    echo "  --format <type>     Report format: html | json | both  (default: html)"
-    echo "  --yes               Skip confirmation prompts (non-interactive / CI)"
-    echo "  --keep <N>          With --apply: keep only the newest N backups (default: 5, 0 = all)"
-    echo "  --refresh-feed      Re-download the OVAL feed instead of using the 24h cache"
-    echo "  --full              Print every finding instead of trimming to the screen"
-    echo "  --min-score <N>     Exit non-zero if --scan score is below N (CI gate)"
-    echo "  --deadman <min>     With --apply: auto-revert after <min> unless --confirm"
-    echo "  --confirm           Cancel a pending dead-man auto-revert (keep hardening)"
-    echo "  --conf <file>       Use a local .yml instead of downloading"
-    echo "  --help              Show this help"
+    echo -e "${BOLD}Options${NC}"
+    echo "  --level <1|2>  Hardening level: 1 = basic, 2 = strict (default: 2)"
+    echo "  --dry-run      Show what --apply would change, change nothing"
+    echo "  --yes          Assume yes for every prompt (CI / unattended)"
+    echo "  --deadman <m>  Auto-revert after <m> minutes unless --confirm arrives"
+    echo "  --confirm      Keep the hardening — cancels a pending auto-revert"
     echo ""
-    echo -e "${BOLD}Hardening levels:${NC}"
-    echo "  Level 1  Basic, practical hardening — safe for everyday servers"
-    echo "  Level 2  Strict hardening for high-security/regulated environments"
-    echo "  (Debian → ANSSI BP28, Fedora → OSPP; level 2 = strict, level 1 = light)"
+    echo -e "${BOLD}Examples${NC}"
+    echo "  sudo ${me} --install"
+    echo "  sudo ${me} --scan"
+    echo "  sudo ${me} --apply --level 1 --deadman 15   # safe remote apply"
     echo ""
-    echo -e "${BOLD}Examples:${NC}"
-    echo "  sudo $(basename "$0") --install"
-    echo "  sudo $(basename "$0") --scan"
-    echo "  sudo $(basename "$0") --scan-cve              # known-CVE scan (OVAL)"
-    echo "  sudo $(basename "$0") --fix-cve               # apply security updates"
-    echo "  sudo $(basename "$0") --dry-run"
-    echo "  sudo $(basename "$0") --apply --level 1     # CIS Level 1 (basic)"
-    echo "  sudo $(basename "$0") --apply --level 2     # CIS Level 2 (strict)"
-    echo "  sudo $(basename "$0") --unapply"
-    echo "  sudo $(basename "$0") --uninstall"
-    # Usage on request exits 0; usage after a usage *error* must exit non-zero,
-    # otherwise a typo'd flag looks like a successful run to CI.
+    echo -e "Every mode and option:  ${BOLD}${me} --help all${NC}"
+    # Usage on request exits 0; `no mode given` must exit non-zero, otherwise a
+    # bare invocation looks like a successful run to CI.
     exit "${1:-0}"
+}
+
+usage_full() {
+    local me; me=$(basename "$0")
+    echo -e "${BOLD}Usage:${NC} ${me} <mode> [options]"
+    echo ""
+    echo -e "${BOLD}Modes${NC}"
+    echo "  --install            Install the scan engines (OpenSCAP, SCAP content, Lynis)"
+    echo "  --scan               Posture scan: compliance + Lynis audit + known CVEs"
+    echo "  --apply              Harden this system (takes a backup first)"
+    echo "  --unapply            Revert to the pre-apply state (keeps OpenSCAP installed)"
+    echo "  --fix-cve            Install pending security updates"
+    echo "  --uninstall          Revert hardening, then remove OpenSCAP + SCAP packages"
+    echo ""
+    echo -e "${BOLD}Options${NC}"
+    echo "  --level <1|2>        Hardening level: 1 = basic, 2 = strict (default: 2)"
+    echo "  --dry-run            Show what --apply would change, change nothing"
+    echo "  --yes                Assume yes for every prompt (CI / unattended)"
+    echo "  --deadman <min>      Auto-revert after <min> minutes unless --confirm arrives"
+    echo "  --confirm            Keep the hardening — cancels a pending auto-revert"
+    echo ""
+    echo -e "${BOLD}Run a single layer${NC}"
+    echo "  --scan-compliance    Compliance scan only (OpenSCAP)"
+    echo "  --scan-lynis         Lynis audit only: hardening index (0-100) + warnings"
+    echo "  --scan-cve           Known-CVE scan only (vendor OVAL feed / dnf errata)"
+    echo "  --install-openscap   Install only OpenSCAP + SCAP content"
+    echo "  --install-lynis      Install only Lynis"
+    echo ""
+    echo -e "${BOLD}Reporting and CI${NC}"
+    echo "  --format <type>      Report format: html | json | both (default: html)"
+    echo "  --min-score <N>      Exit 2 if the compliance score is below N (CI gate)"
+    echo "  --full               Print every finding instead of trimming to the screen"
+    echo ""
+    echo -e "${BOLD}Tuning${NC}"
+    echo "  --keep <N>           Keep only the newest N backups (default: 5, 0 = all)"
+    echo "  --refresh-feed       Re-download the OVAL feed instead of using the 24h cache"
+    echo "  --conf <file>        Use a local .yml profile instead of the bundled one"
+    echo ""
+    echo -e "${BOLD}Hardening levels${NC}"
+    echo "  1  Basic, practical hardening — safe for everyday servers"
+    echo "  2  Strict hardening for high-security / regulated environments (default)"
+    echo "  Debian uses ANSSI BP-028 and Fedora uses OSPP instead of CIS; there"
+    echo "  level 2 means the strict baseline and level 1 the light one."
+    echo ""
+    echo -e "${BOLD}Examples${NC}"
+    echo "  sudo ${me} --install                        # first run, once"
+    echo "  sudo ${me} --scan                           # where do we stand?"
+    echo "  sudo ${me} --dry-run --level 1              # what would change?"
+    echo "  sudo ${me} --apply --level 1 --deadman 15   # safe remote apply"
+    echo "  sudo ${me} --confirm                        # still online — keep it"
+    echo "  sudo ${me} --unapply                        # roll everything back"
+    echo "  sudo ${me} --scan --min-score 90 --yes      # CI gate"
+    echo ""
+    echo -e "${BOLD}Exit codes${NC}"
+    echo "  0  success        1  error or usage        2  --min-score gate not met"
+    exit 0
+}
+
+# A usage error has to stay readable on a console with no scrollback: dumping the
+# whole help here would scroll the error message itself off the top of the screen.
+usage_error() {
+    log_error "$1"
+    {
+        echo ""
+        echo "  Modes:  --install  --scan  --apply  --unapply  --fix-cve"
+        echo "  Help:   $(basename "$0") --help"
+    } >&2
+    exit 1
 }
 
 # Prompt for confirmation unless --yes was given. Returns 0 to proceed.
@@ -270,14 +323,18 @@ parse_args() {
             --level)     require_val "$1" "${2:-}"; SEC_LEVEL="$2"; shift ;;
             --format)    require_val "$1" "${2:-}"; REPORT_FORMAT="$2"; shift ;;
             --conf)      require_val "$1" "${2:-}"; LOCAL_CONF="$2"; shift ;;
-            --help|-h)   usage ;;
-            *) log_error "Unknown option: $1"; echo ""; usage 1 ;;
+            --help|-h)
+                # `--help all` (or `--help full`) opens the complete surface.
+                if [[ "${2:-}" == "all" || "${2:-}" == "full" ]]; then usage_full; fi
+                usage
+                ;;
+            *) usage_error "Unknown option: $1" ;;
         esac
         shift
     done
 
     if [[ "$DRY_RUN" == true && -z "$MODE" ]]; then MODE="apply"; fi
-    if [[ -z "$MODE" ]]; then log_error "No mode specified."; echo ""; usage 1; fi
+    if [[ -z "$MODE" ]]; then usage_error "No mode specified."; fi
 
     case "$REPORT_FORMAT" in
         html|json|both) ;;
@@ -2567,8 +2624,11 @@ trap cleanup EXIT
 
 main() {
     detect_term_rows        # before anything runs inside $( ) — see the function
-    banner
+    # parse_args() before banner(): --help and usage errors then start at the top
+    # of the screen instead of below the logo, which is what makes them readable
+    # on a console with no scrollback.
     parse_args "$@"
+    banner
     check_root "$@"
     detect_distro
     download_conf

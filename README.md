@@ -25,42 +25,83 @@ into your base image, then layer applications on top.
 
 ---
 
-## Features
+## Quick start
 
-### Compliance hardening
-- **`--scan`** — Full posture scan: compliance (CIS/ANSSI/STIG) + Lynis audit + known CVEs; HTML/JSON report + score (`--scan-compliance` = compliance layer only)
-- **`--apply`** — Apply hardening; backs up first, then shows before/after score
-- **`--unapply`** — Revert hardening to the exact pre-apply state (configs **and**
-  packages the hardening removed; keeps OpenSCAP and any apps it added)
-- **`--dry-run`** — Show failing rules by severity without changing anything
-- **`--level 1|2`** — CIS Level 1 (basic) or Level 2 (strict, default)
+```bash
+git clone https://github.com/murat-akpinar/hardenix.git && cd hardenix
 
-### Vulnerability management (CVE)
-- **`--scan-cve`** — Scan installed packages for **known CVEs** using the vendor
-  OVAL feed (e.g. Ubuntu USN); severity-grouped summary + HTML report
-- **`--fix-cve`** — Install **only** the available security updates, then verify
+sudo ./linuxharden.sh --install     # 1. install the scan engines (once)
+sudo ./linuxharden.sh --scan        # 2. where do we stand?
+sudo ./linuxharden.sh --dry-run     # 3. what would --apply change?
+sudo ./linuxharden.sh --apply       # 4. harden — takes a backup first
+sudo ./linuxharden.sh --unapply     #    changed your mind? roll it back
+```
 
-### Audit — second opinion (Lynis)
-- **`--scan-lynis`** — [Lynis](https://github.com/CISOfy/lynis) system audit:
-  hardening index (0-100), warnings and suggestions — an OpenSCAP-independent
-  second opinion (and the only audit engine available on Arch)
-- Plain **`--scan`** now runs every read-only layer in one go: compliance +
-  Lynis + CVE. Missing layers are skipped with a warning; use
-  `--scan-compliance` for the old single-engine behavior. `--min-score` still
-  gates the compliance score only.
+Hardening a machine you reach over SSH? Add **`--deadman 15`** so it reverts
+itself if the changes lock you out — see
+[safe remote hardening](#safe-remote-hardening-dead-man-switch).
 
-### Safety & automation
-- **`--deadman <min>` / `--confirm`** — Dead-man switch: auto-revert after N minutes
-  unless you confirm — makes **remote** hardening safe against SSH lockout
-- **`--yes`** — Non-interactive (CI / unattended runs)
-- **`--min-score <N>`** — Exit non-zero if compliance score is below N (CI gate)
-- **Running-service protection** — Detects active services (NFS/SMB, **Apache/nginx**)
-  and offers to exclude the rules that would remove/disable them
-- **Setup** — `--install` (OpenSCAP + SCAP content + Lynis) / `--uninstall` (revert, then remove)
+Five modes and five options cover almost every run, and that is exactly what
+`--help` prints. The complete surface is one command away:
 
-### Built-in
-- **Exclusions** (rules / services / paths), **hooks** (pre/post/rollback),
-  **XCCDF tailoring** auto-generated from the profile
+```bash
+./linuxharden.sh --help        # the everyday set — fits one screen
+./linuxharden.sh --help all    # every mode and option, grouped
+```
+
+---
+
+## What it does
+
+| Layer | The question it answers | Modes |
+|-------|-------------------------|-------|
+| **Compliance hardening** | Is this box configured to a recognised baseline? | `--apply` · `--unapply` · `--scan-compliance` |
+| **Security audit** | What does a second, independent engine think? | `--scan-lynis` |
+| **Vulnerability management** | Which installed packages have published CVEs? | `--scan-cve` · `--fix-cve` |
+
+`--scan` runs all three read-only layers in one pass and ends with a single
+posture box. A missing engine is skipped with a warning instead of failing the
+run; `--min-score` gates the compliance score only.
+
+### Hardening — `--apply` / `--unapply`
+
+- Backs up **before** the first change, then re-scans and reports the
+  before/after score
+- `--unapply` restores the **exact** pre-apply state: configs byte-for-byte,
+  service enable/disable state, and the packages hardening removed. Packages it
+  *added* — and OpenSCAP itself — are kept: this reverts settings, it does not
+  uninstall applications
+- `--dry-run` lists the failing rules by severity and changes nothing
+- `--level 1` = basic, `--level 2` = strict (default)
+
+### Vulnerability management — `--scan-cve` / `--fix-cve`
+
+- Checks installed packages against the vendor OVAL feed (e.g. Canonical USN);
+  RHEL rebuilds use native `dnf updateinfo` instead, which does not over-report
+- Severity-grouped summary + HTML report; `--fix-cve` installs **only** the
+  security updates, then verifies
+
+### Audit — `--scan-lynis`
+
+- [Lynis](https://github.com/CISOfy/lynis) hardening index (0-100), warnings and
+  suggestions — an OpenSCAP-independent second opinion, and the only audit engine
+  available on Arch
+
+### Safety
+
+- **Dead-man switch** (`--deadman <min>` / `--confirm`) — auto-reverts unless you
+  confirm you still have access. This is what makes hardening over SSH survivable.
+- **Running-service protection** — detects active services (NFS/SMB,
+  **Apache/nginx**) and offers to exclude the rules that would remove or disable them
+- **Read-only means read-only** — every scan mode and `--dry-run` write nothing
+  to the system
+- `--yes` for unattended runs, `--min-score <N>` to gate a pipeline
+
+### Built in
+
+Per-profile **exclusions** (rules / services / paths), **hooks** (pre-hardening /
+post-hardening / on-rollback), and an **XCCDF tailoring** file generated from the
+profile.
 
 ---
 
@@ -194,30 +235,56 @@ sudo ./linuxharden.sh --scan --min-score 90 || echo "below baseline — blocking
 
 ## Parameters
 
+Split the same way `--help` is: the everyday set first, everything else behind
+the fold.
+
+### Everyday
+
 | Parameter | Description |
 |-----------|-------------|
-| `--install` | Installs OpenSCAP + SCAP content + Lynis for the detected distro |
+| `--install` | Installs the scan engines: OpenSCAP + SCAP content + Lynis |
+| `--scan` | Full posture scan: compliance + Lynis audit + known CVEs (missing layers skipped) |
+| `--apply` | Applies hardening (backup → apply → verify) |
+| `--unapply` | Reverts to the pre-apply state (keeps OpenSCAP installed) |
+| `--fix-cve` | Installs only the available security updates |
+| `--level <1\|2>` | Hardening level: `1` = CIS Level 1 (basic), `2` = CIS Level 2 (strict, default) |
+| `--dry-run` | Shows what `--apply` would change, grouped by severity — changes nothing |
+| `--yes` | Assumes yes for every prompt (non-interactive / CI) |
+| `--deadman <min>` | With `--apply`: auto-revert after `<min>` minutes unless `--confirm` |
+| `--confirm` | Keeps the hardening — cancels a pending auto-revert |
+
+<details>
+<summary><b>Everything else</b> — single-layer scans, reporting, CI, tuning</summary>
+
+**Run a single layer.** `--scan` already runs all three; reach for these when you
+want one of them on its own.
+
+| Parameter | Description |
+|-----------|-------------|
+| `--scan-compliance` | Compliance scan only (OpenSCAP) |
+| `--scan-lynis` | Lynis audit only: hardening index (0-100) + warnings |
+| `--scan-cve` | Known-CVE scan only (vendor OVAL feed, or `dnf` errata on RHEL rebuilds) |
 | `--install-openscap` | Installs only OpenSCAP + SCAP content |
 | `--install-lynis` | Installs only Lynis (RHEL family: requires EPEL) |
 | `--uninstall` | Reverts hardening, then removes OpenSCAP + SCAP packages |
-| `--apply` | Applies hardening (backup → apply → verify) |
-| `--unapply` | Reverts hardening to the pre-apply state (keeps OpenSCAP installed) |
-| `--scan` | Full posture scan: compliance + Lynis audit + known CVEs (missing layers skipped) |
-| `--scan-compliance` | Compliance scan only (OpenSCAP) |
-| `--scan-lynis` | Lynis audit only: hardening index (0-100) + warnings |
-| `--scan-cve` | Scans installed packages for known CVEs via the vendor OVAL feed |
-| `--fix-cve` | Installs only the available security updates |
-| `--dry-run` | Shows failing rules grouped by severity, does not apply (implies `--apply`) |
-| `--level <1\|2>` | Hardening level: `1` = CIS Level 1 (basic), `2` = CIS Level 2 (strict, default) |
+
+**Reporting and CI**
+
+| Parameter | Description |
+|-----------|-------------|
 | `--format <type>` | `html` \| `json` \| `both` (default: html) |
-| `--deadman <min>` | With `--apply`: auto-revert after `<min>` minutes unless `--confirm` |
-| `--confirm` | Cancel a pending dead-man auto-revert (keep the hardening) |
-| `--yes` | Skip confirmation prompts (non-interactive / CI) |
+| `--min-score <N>` | Exit `2` if the compliance score is below N (CI gate) |
 | `--full` | Print every finding instead of trimming the listing to the screen |
+
+**Tuning**
+
+| Parameter | Description |
+|-----------|-------------|
 | `--keep <N>` | With `--apply`: keep only the newest N backups (default 5, `0` keeps all) |
 | `--refresh-feed` | Re-download the OVAL feed instead of using the 24 h cache |
-| `--min-score <N>` | Exit non-zero if the `--scan` score is below N (CI gate) |
-| `--conf <file>` | Use a local .yml profile file |
+| `--conf <file>` | Use a local .yml profile instead of the bundled one |
+
+</details>
 
 ### Console-friendly output
 

@@ -10,8 +10,10 @@ Every invocation runs the same spine (`main()` at the bottom of the file):
 
 ```
 main()
- ├─ banner()                    # version banner
  ├─ parse_args()                # flags → MODE + runtime flags; validation
+ │                              #   --help / usage errors exit here, before the
+ │                              #   banner, so they start at the top of the screen
+ ├─ banner()                    # version banner (one line below 30 rows)
  ├─ check_root()
  ├─ detect_distro()             # /etc/os-release → DISTRO_ID, DISTRO_VERSION;
  │                              #   prints applied level from STATE_FILE if present
@@ -37,6 +39,25 @@ error (`--scan --apply` must never silently apply), a value-taking option with n
 value is a hard error (a bare `shift` past the end would otherwise kill the script
 silently under `set -e`), and any usage error exits **non-zero** so a typo'd flag
 fails CI instead of looking like a clean run.
+
+### Help is tiered
+
+23 flags on one screen is the same overwhelm problem as a 180-line scan, so the
+help has two levels and errors have neither:
+
+| Entry point | Function | Output |
+|-------------|----------|--------|
+| `--help`, no args | `usage()` | 5 modes, 5 options, 3 examples — **22 rows**, fits a 24-row console |
+| `--help all` (or `full`) | `usage_full()` | every flag, grouped: modes · options · single layer · reporting/CI · tuning · levels · examples · exit codes |
+| unknown flag, no mode | `usage_error()` | the error, one line of modes, one line pointing at `--help` |
+
+`usage_error()` deliberately does **not** print the help: on a console with no
+scrollback a 22-line dump would scroll the error message itself off the top, which
+is the one line the operator needs. `usage()` still takes an exit code (`usage 1`
+for a bare invocation); `usage_full()` is always `0`.
+
+Anything added to `usage_full()` must also land in the `Parameters` tables of
+`README.md` and `README_TR.md` — those are the same list in a different medium.
 
 ### Exit codes
 
