@@ -1,5 +1,10 @@
 ## [unreleased]
 
+### 🚀 Features
+
+- *(scan)* Fit the posture scan on one console screen ([a69b948](https://github.com/murat-akpinar/hardenix/commit/a69b9480826c65dd7caa71f2c76246f2223c7d03))
+hardenix is often read on the machine's own console, where there is no scrollback. `--scan` printed 183 lines — roughly eight screens on a 24-row terminal — and the operator could not page back through them.
+
 ### 🐛 Bug Fixes
 
 - Repair defects found in a full script review ([294e1cf](https://github.com/murat-akpinar/hardenix/commit/294e1cfda8c251dbef3bc5870e836d4abccee4a6))
@@ -14,6 +19,8 @@ The four files under todo/ carried three problems: a finished plan taking up 817
 CLAUDE.md pointed at four rulebooks under .rules/ that do not exist in the repository - the directory was gitignored, so the rules had no history and no presence on a fresh checkout. The rules now live in CLAUDE.md itself.
 - Document exit codes, backup verification and profile lookup ([1ed568a](https://github.com/murat-akpinar/hardenix/commit/1ed568af880c88065c4e774286080cd77f531272))
 - Both READMEs gain an exit-code table: usage errors are now 1, the --min-score   gate is 2, and --apply is 0 with or without --deadman. - Record that create_backup() verifies the archive before the first mutation and   that the optional --scan layers degrade instead of aborting. - Describe the three-candidate profile lookup and why rolling releases need the   bare <id>.yml form. - Correct the pipeline diagram: detect_distro(), not banner(), prints the applied   level. - Replace the YOUR_GITHUB_USER placeholder, fix the distro badge (9, not 8), and   drop exclusions.users from the sample profile — parse_conf() never read it.
+- Document --full and the one-screen posture output ([f4c3a5b](https://github.com/murat-akpinar/hardenix/commit/f4c3a5b59505d49ae281c315f0d9426eb086fba4))
+Both READMEs gain a "Console-friendly output" section with the posture box and the terminal-vs-pipe rule; `--full` joins the parameter tables. script-internals gains a "Terminal-aware output" section, including why `detect_term_rows()` must run outside command substitution.
 
 ### 🎨 Styling
 
