@@ -8,6 +8,8 @@ hardenix is often read on the machine's own console, where there is no scrollbac
 On the Rocky 9.8 VM --fix-cve patched 156 packages and reported success, but --scan-cve still listed 93 CVEs afterwards, which reads like the patching failed. It had not: `dnf check-update --security` was clean and the box was simply still running kernel 687.10.1 while 687.39.1 sat installed. The count was right; the message was missing.
 - Add --keep, --refresh-feed and a profile/distro mismatch warning ([9ea084f](https://github.com/murat-akpinar/hardenix/commit/9ea084fe02487957c0654a7f67c9e8059de01436))
 The three gaps the full-feature sweep turned up, each verified on both VMs.
+- Tier the help output so --help fits one screen ([a841ca9](https://github.com/murat-akpinar/hardenix/commit/a841ca90a8175abeff092f62ca4c6d13179ee07a))
+23 flags on one screen was the same overwhelm problem as a 180-line scan: --help printed 44 rows plus the banner, two screens on a 24-row console with no scrollback. A usage error was worse — it dumped the whole help below the error, pushing the one line the operator actually needed off the top.
 
 ### 🐛 Bug Fixes
 
@@ -29,6 +31,9 @@ CLAUDE.md pointed at four rulebooks under .rules/ that do not exist in the repos
 Both READMEs gain a "Console-friendly output" section with the posture box and the terminal-vs-pipe rule; `--full` joins the parameter tables. script-internals gains a "Terminal-aware output" section, including why `detect_term_rows()` must run outside command substitution.
 - Note the reboot caveat and the OVAL feed cache ([269ff1d](https://github.com/murat-akpinar/hardenix/commit/269ff1dc662777947b9f4ea08d5543cc14a8bddc))
 A kernel fix is not live until reboot, so --scan-cve keeps reporting those CVEs until then — accurate, not stale. Also documents that the feed is cached for 24 h and how to force a refresh.
+- Record the post-reboot CVE verification ([fa96c49](https://github.com/murat-akpinar/hardenix/commit/fa96c499d6592e30ce925a9f3239c24fd3d8ba52))
+- Check off the exit-code contract, record the MaxAuthTries lockout ([646036e](https://github.com/murat-akpinar/hardenix/commit/646036e35324690b1b8ca9e06731058cd7a5a2cb))
+The exit-code contract shipped in v1.2.1 — both READMEs and script-internals carry the table and usage errors return 1 — but the todo entry was never ticked. An unchecked done item is the same bug as a checked undone one.
 
 ### 🎨 Styling
 
