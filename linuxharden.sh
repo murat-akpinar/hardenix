@@ -5,6 +5,16 @@ set -euo pipefail
 readonly SCRIPT_VERSION="1.5.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
+# How to tell the operator to re-run us. `basename "$0"` is wrong: it yields a
+# bare "linuxharden.sh" whatever the invocation, and that name is not on $PATH,
+# so every printed recovery command failed when pasted. Absolute path so it works
+# from any cwd, and via `bash` so it survives a lost executable bit (this repo is
+# also checked out on Windows).
+SELF_CMD="bash ${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")"
+readonly SELF_CMD
+# Pinned SSG release used when the GitHub API cannot be reached, and quoted in
+# the "distro package too old" hint so that message names a real version.
+readonly SSG_FALLBACK_VER="0.1.74"
 readonly BACKUP_BASE="/var/lib/linuxharden"
 REPORT_DIR="$(pwd)/reports"
 readonly REPORT_DIR
@@ -169,7 +179,7 @@ banner() {
 # that shapes the scan output. The banner is printed *after* parse_args(), so
 # neither help screen carries the ASCII art.
 usage() {
-    local me; me=$(basename "$0")
+    local me; me="./$(basename "$0")"
     echo -e "${BOLD}Usage:${NC} ${me} <mode> [options]"
     echo ""
     echo -e "${BOLD}Modes${NC}"
@@ -198,7 +208,7 @@ usage() {
 }
 
 usage_full() {
-    local me; me=$(basename "$0")
+    local me; me="./$(basename "$0")"
     echo -e "${BOLD}Usage:${NC} ${me} <mode> [options]"
     echo ""
     echo -e "${BOLD}Modes${NC}"
@@ -240,13 +250,13 @@ usage_full() {
     echo "  level 2 means the strict baseline and level 1 the light one."
     echo ""
     echo -e "${BOLD}Examples${NC}"
-    echo "  sudo ${me} --install                        # first run, once"
-    echo "  sudo ${me} --scan                           # where do we stand?"
-    echo "  sudo ${me} --dry-run --level 1              # what would change?"
-    echo "  sudo ${me} --apply --level 1 --deadman 15   # safe remote apply"
-    echo "  sudo ${me} --confirm                        # still online — keep it"
-    echo "  sudo ${me} --unapply                        # roll everything back"
-    echo "  sudo ${me} --scan --min-score 90 --yes      # CI gate"
+    echo "  sudo ${me} --install                      # first run, once"
+    echo "  sudo ${me} --scan                         # where do we stand?"
+    echo "  sudo ${me} --dry-run --level 1            # what would change?"
+    echo "  sudo ${me} --apply --level 1 --deadman 15 # safe remote apply"
+    echo "  sudo ${me} --confirm                      # still online — keep it"
+    echo "  sudo ${me} --unapply                      # roll everything back"
+    echo "  sudo ${me} --scan --min-score 90 --yes    # CI gate"
     echo ""
     echo -e "${BOLD}Exit codes${NC}"
     echo "  0  success        1  error or usage        2  --min-score gate not met"
@@ -260,7 +270,7 @@ usage_error() {
     {
         echo ""
         echo "  Modes:  --install  --scan  --apply  --unapply  --fix-cve"
-        echo "  Help:   $(basename "$0") --help"
+        echo "  Help:   ${SELF_CMD} --help"
     } >&2
     exit 1
 }
@@ -386,7 +396,7 @@ parse_args() {
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         log_error "This script must be run as root."
-        echo -e "  Try: ${BOLD}sudo $(basename "$0") $*${NC}"
+        echo -e "  Try: ${BOLD}sudo ${SELF_CMD} $*${NC}"
         exit 1
     fi
 }
@@ -571,14 +581,15 @@ check_dependencies() {
         if [[ "$PKG_MANAGER" == "apt-get" ]] && dpkg -s ssg-debderived &>/dev/null; then
             local ssg_ver; ssg_ver=$(dpkg -s ssg-debderived | awk '/^Version:/{print $2}')
             log_warn "ssg-debderived ${ssg_ver} is installed but lacks content for this OS version."
-            echo -e "  The distro package is too old — download newer content from GitHub:"
-            echo -e "  ${BOLD}https://github.com/ComplianceAsCode/content/releases${NC}"
-            echo -e "  Then place the xml file at: ${BOLD}$(dirname "$XML_PATH")/${NC}"
+            echo -e "  The distro package is too old for this OS version."
+            # --install already fetches the right content from GitHub. Telling the
+            # operator to wget it by hand — and with a literal X.X.XX that 404s if
+            # pasted — sent them off to redo work the tool does itself.
+            echo -e "  Fix it with: ${BOLD}sudo ${SELF_CMD} --install-openscap${NC}"
+            echo -e "  That downloads SSG v${SSG_FALLBACK_VER}+ and installs $(basename "$XML_PATH")"
+            echo -e "  into ${BOLD}$(dirname "$XML_PATH")/${NC} for you."
             echo ""
-            echo -e "  Quick install (replace X.X.XX with latest version):"
-            echo -e "  ${BOLD}wget https://github.com/ComplianceAsCode/content/releases/download/vX.X.XX/scap-security-guide-X.X.XX.zip${NC}"
-            echo -e "  ${BOLD}unzip scap-security-guide-X.X.XX.zip${NC}"
-            echo -e "  ${BOLD}cp scap-security-guide-X.X.XX/$(basename "$XML_PATH") $(dirname "$XML_PATH")/${NC}"
+            echo -e "  Manual alternative: ${BOLD}https://github.com/ComplianceAsCode/content/releases${NC}"
         else
             echo -e "  Install: ${BOLD}${PKG_MANAGER} install ${SSG_PKG}${NC}"
             if [[ "$PKG_MANAGER" == "apt-get" ]]; then
@@ -597,7 +608,17 @@ check_dependencies() {
     minor=$(echo "$ver" | cut -d. -f2)
     if [[ "$major" -lt 1 ]] || [[ "$major" -eq 1 && "$minor" -lt 3 ]]; then
         log_warn "oscap ${ver} is outdated — 1.3+ required for current SSG content."
-        echo -e "  Reinstall: ${BOLD}apt-get install --reinstall ${OSCAP_PKG}${NC}"
+        # Reinstall syntax differs per manager, and this used to print apt-get
+        # unconditionally — a command that does not exist on four of nine distros.
+        local reinstall
+        case "$PKG_MANAGER" in
+            apt-get) reinstall="apt-get install --reinstall ${OSCAP_PKG}" ;;
+            dnf|yum) reinstall="${PKG_MANAGER} reinstall ${OSCAP_PKG}" ;;
+            zypper)  reinstall="zypper install --force ${OSCAP_PKG}" ;;
+            pacman)  reinstall="pacman -S ${OSCAP_PKG}" ;;
+            *)       reinstall="reinstall ${OSCAP_PKG} with your package manager" ;;
+        esac
+        echo -e "  Reinstall: ${BOLD}${reinstall}${NC}"
         echo ""
         log_error "Incompatible oscap version. Aborting."
         exit 1
@@ -618,7 +639,15 @@ check_dependencies() {
         log_info "Engines: oscap ${ver} · lynis ${lynis_ver:-installed}"
     else
         log_warn "Engines: oscap ${ver} · lynis not installed — --scan will skip the audit layer"
-        echo -e "  Add it with: ${BOLD}$(basename "$0") --install-lynis${NC}"
+        # On RHEL rebuilds lynis is in EPEL, not the base repos, so pointing at
+        # --install-lynis on its own would send the operator to a command that
+        # cannot succeed. Name the missing repo instead.
+        if [[ "$PKG_MANAGER" == "dnf" || "$PKG_MANAGER" == "yum" ]]; then
+            echo -e "  Add it with: ${BOLD}${PKG_MANAGER} install -y epel-release${NC}   (lynis is in EPEL)"
+            echo -e "               ${BOLD}sudo ${SELF_CMD} --install-lynis${NC}"
+        else
+            echo -e "  Add it with: ${BOLD}sudo ${SELF_CMD} --install-lynis${NC}"
+        fi
     fi
 }
 
@@ -1407,7 +1436,7 @@ PYEOF
 install_ssg_from_github() {
     local xml_filename; xml_filename=$(basename "$XML_PATH")
     local dest_dir; dest_dir=$(dirname "$XML_PATH")
-    local ssg_ver="0.1.74"
+    local ssg_ver="$SSG_FALLBACK_VER"
 
     log_info "Fetching latest SSG release from GitHub..."
     local api_out=""
@@ -1508,7 +1537,7 @@ install_lynis_pkg() {
             exit 1
         fi
         log_warn "Lynis could not be installed — skipping (compliance/CVE features unaffected)."
-        echo -e "  Retry later with: ${BOLD}sudo $(basename "$0") --install-lynis${NC}"
+        echo -e "  Retry later with: ${BOLD}sudo ${SELF_CMD} --install-lynis${NC}"
         return 0
     fi
     log_info "Lynis ready."
@@ -1616,7 +1645,7 @@ run_install_deps() {
     echo ""
     log_info "All requested components installed."
     if [[ "$component" != "lynis" ]]; then
-        echo -e "  Next: ${BOLD}sudo bash $(basename "$0") --apply${NC}"
+        echo -e "  Next: ${BOLD}sudo ${SELF_CMD} --apply${NC}"
     fi
 }
 
@@ -2221,7 +2250,7 @@ run_fix_cve() {
             echo -e "  ${BOLD}A reboot is recommended${NC} so every patch takes effect."
         fi
     fi
-    log_info "Verify with: ${BOLD}$(basename "$0") --scan-cve${NC}"
+    log_info "Verify with: ${BOLD}sudo ${SELF_CMD} --scan-cve${NC}"
 }
 
 # ── Apply ─────────────────────────────────────────────────────────────────────
@@ -2329,7 +2358,7 @@ run_apply() {
     echo ""
     log_info "Backup at: $backup_dir"
     log_warn "A reboot may be required for some changes to take effect."
-    echo -e "  To revert: ${BOLD}sudo $(basename "$0") --unapply${NC}"
+    echo -e "  To revert: ${BOLD}sudo ${SELF_CMD} --unapply${NC}"
 
     # NOT `[[ ... ]] && arm_deadman`: as the last statement of the function a
     # false test makes run_apply — and therefore the whole script — return 1,
@@ -2363,7 +2392,7 @@ arm_deadman() {
         echo ""
         log_warn "DEAD-MAN SWITCH ARMED — system auto-reverts in ${mins} minute(s)."
         echo -e "  If you can still log in, keep the changes with:"
-        echo -e "    ${BOLD}sudo $(basename "$0") --confirm${NC}"
+        echo -e "    ${BOLD}sudo ${SELF_CMD} --confirm${NC}"
     else
         log_warn "Failed to arm dead-man switch."
     fi
@@ -2710,7 +2739,7 @@ EOF
 
     log_info "Backup at: $backup_dir"
     log_warn "Review changes and reboot."
-    echo -e "  To revert: ${BOLD}sudo $(basename "$0") --unapply${NC}"
+    echo -e "  To revert: ${BOLD}sudo ${SELF_CMD} --unapply${NC}"
 }
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────

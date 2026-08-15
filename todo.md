@@ -694,6 +694,47 @@ Severity sayım satırı bu bilgiyi zaten tek satırda veriyor. Gerekçe
 `PermitRootLogin` yes → no → yes zinciri hem lockout teşhisinin hem de
 `--unapply`'ın tam geri döndürdüğünün doğrudan kanıtı.
 
+### Basılan komutların hiçbiri çalışmıyordu — v1.5.0 ✅ (2026-08-15)
+
+Maintainer yakaladı: `Retry later with: sudo linuxharden.sh --install-lynis`.
+Bu komut **hiçbir zaman çalışmıyordu** — araç `$PATH`'te değil.
+
+Kök neden: `basename "$0"` nasıl çağırırsan çağır çıplak `linuxharden.sh`
+veriyor. Ölçüldü: `bash t.sh` → `t.sh`, `./t.sh` → `t.sh`, `bash /tmp/t.sh` →
+`t.sh`. Yani hiçbir çağırma biçiminde çalışan bir komut üretmiyor. **11 yerde**
+kullanılıyordu; biri ([:1619]) `sudo bash` diyordu, diğer 10'u demiyordu — kendi
+içinde de tutarsız.
+
+Çözüm: `SELF_CMD="bash ${SCRIPT_DIR}/linuxharden.sh"` — mutlak yol (cwd'den
+bağımsız) ve `bash` üzerinden (executable bit kaybını tolere eder; depo Windows'ta
+da checkout ediliyor). Tüm çalışma-zamanı ipuçları buna geçti; `usage()`
+örnekleri README'nin biçimiyle uyumlu `./linuxharden.sh` oldu.
+
+Ubuntu'da kanıt:
+
+```
+yeni:  bash /opt/hardenix/linuxharden.sh --help   → başka dizinden ÇALIŞTI (rc=0)
+eski:  linuxharden.sh --help                      → command not found
+```
+
+**Aynı sınıfta taranan ve bulunan diğer üç hata:**
+
+1. **Sabitlenmiş `apt-get`.** "oscap eski" uyarısı dokuz distronun dördünde var
+   olmayan `apt-get install --reinstall` basıyordu. Artık `$PKG_MANAGER`'a göre:
+   `dnf reinstall` / `zypper install --force` / `pacman -S`.
+2. **Kendi yeni eklediğim `Engines:` ipucu.** RHEL ailesinde `--install-lynis`
+   öneriyordu ama EPEL olmadan o komut da başarısız — kullanıcıyı çalışmayan
+   komuta yönlendiriyordum. Artık dnf/yum'da önce `epel-release` diyor.
+   Üç paket yöneticisiyle de doğrulandı.
+3. **`X.X.XX` yer tutucusu.** SSG manuel kurulum talimatı literal `X.X.XX`
+   içeriyordu, yapıştıran 404 alırdı. Üstelik gereksizdi: `--install-openscap`
+   bu indirmeyi zaten kendisi yapıyor. Mesaj artık önce onu gösteriyor,
+   sürümü de `SSG_FALLBACK_VER` global'inden gerçek değerle yazıyor.
+
+**Kural olarak yazıldı** (`docs/script-internals.md`): basılan her komut
+yapıştırıldığında çalışmalı; kendine referans `$SELF_CMD`, paket yöneticisi
+komutları `$PKG_MANAGER` üzerinden ya da onu test etmiş bir dalın içinden.
+
 ### Bulgular (kalıcı, davranışı etkiler)
 
 - **Mask sırası:** boş sistemi hardenleyip **sonra** nginx/apache kurarsan servis maskeli

@@ -355,6 +355,15 @@ per-severity banners cost three rows each that a short console cannot spare.
 
 ## Conventions that keep it safe
 
+- **Every printed command must run when pasted.** Recovery hints use `$SELF_CMD`
+  (`bash <abs path>/linuxharden.sh`), never `basename "$0"` — that yields a bare
+  `linuxharden.sh` whatever the invocation, and the tool is not on `$PATH`, so
+  every hint used to print a command that failed with *command not found*. The
+  same rule killed a hardcoded `apt-get install --reinstall` on dnf/zypper/pacman
+  systems, a `--install-lynis` hint that cannot succeed on RHEL without EPEL, and
+  a manual SSG install snippet containing a literal `X.X.XX`. Package-manager
+  commands in messages come from `$PKG_MANAGER` or sit inside a branch that has
+  already tested it.
 - All prompts go through `confirm()`, which honors `--yes` (`ASSUME_YES`) and
   non-TTY execution — the script is CI-safe by construction.
 - All output goes through `log_info/warn/error/section`; long operations get a
