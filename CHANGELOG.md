@@ -4,11 +4,15 @@
 
 - *(scan)* Fit the posture scan on one console screen ([a69b948](https://github.com/murat-akpinar/hardenix/commit/a69b9480826c65dd7caa71f2c76246f2223c7d03))
 hardenix is often read on the machine's own console, where there is no scrollback. `--scan` printed 183 lines — roughly eight screens on a 24-row terminal — and the operator could not page back through them.
+- *(fix-cve)* Say when a patched kernel is not live yet ([a688793](https://github.com/murat-akpinar/hardenix/commit/a6887936a502d7ffaac8fc7b3339185d3e822898))
+On the Rocky 9.8 VM --fix-cve patched 156 packages and reported success, but --scan-cve still listed 93 CVEs afterwards, which reads like the patching failed. It had not: `dnf check-update --security` was clean and the box was simply still running kernel 687.10.1 while 687.39.1 sat installed. The count was right; the message was missing.
 
 ### 🐛 Bug Fixes
 
 - Repair defects found in a full script review ([294e1cf](https://github.com/murat-akpinar/hardenix/commit/294e1cfda8c251dbef3bc5870e836d4abccee4a6))
 Eleven defects, each reproduced and re-verified on the Ubuntu 24.04.4 and Rocky 9.8 test VMs.
+- *(profiles)* Back up every path the remediation writes ([1834aac](https://github.com/murat-akpinar/hardenix/commit/1834aacf4ca067e0b285ef604568a6285be07bf4))
+--unapply deletes and restores only what backup.config_dirs covers, so anything the hardening wrote outside that list simply stayed applied. Only ubuntu-24.04.yml had the extended list; the other eight profiles still carried the original ~12 paths.
 
 ### 📚 Documentation
 
@@ -21,6 +25,8 @@ CLAUDE.md pointed at four rulebooks under .rules/ that do not exist in the repos
 - Both READMEs gain an exit-code table: usage errors are now 1, the --min-score   gate is 2, and --apply is 0 with or without --deadman. - Record that create_backup() verifies the archive before the first mutation and   that the optional --scan layers degrade instead of aborting. - Describe the three-candidate profile lookup and why rolling releases need the   bare <id>.yml form. - Correct the pipeline diagram: detect_distro(), not banner(), prints the applied   level. - Replace the YOUR_GITHUB_USER placeholder, fix the distro badge (9, not 8), and   drop exclusions.users from the sample profile — parse_conf() never read it.
 - Document --full and the one-screen posture output ([f4c3a5b](https://github.com/murat-akpinar/hardenix/commit/f4c3a5b59505d49ae281c315f0d9426eb086fba4))
 Both READMEs gain a "Console-friendly output" section with the posture box and the terminal-vs-pipe rule; `--full` joins the parameter tables. script-internals gains a "Terminal-aware output" section, including why `detect_term_rows()` must run outside command substitution.
+- Note the reboot caveat and the OVAL feed cache ([269ff1d](https://github.com/murat-akpinar/hardenix/commit/269ff1dc662777947b9f4ea08d5543cc14a8bddc))
+A kernel fix is not live until reboot, so --scan-cve keeps reporting those CVEs until then — accurate, not stale. Also documents that the feed is cached for 24 h and how to force a refresh.
 
 ### 🎨 Styling
 
