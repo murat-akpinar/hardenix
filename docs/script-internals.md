@@ -90,6 +90,15 @@ Runs every read-only layer in one call, in order:
    `scap.oval_url` is set; otherwise `log_warn`s "No OVAL feed configured
    (scap.oval_url) — skipping CVE layer."
 
+It then prints **one posture box** (`print_posture_summary()`) carrying all three
+headline numbers, the worst failing rules and the report path — see *Terminal-aware
+output* below. In this mode the per-layer summary boxes are suppressed
+(`COMBINED_SCAN=true`); the single-layer flags keep theirs.
+
+Because the optional layers run in a subshell, they cannot report back through
+globals. Each writes `key=value` lines to `POSTURE_STATS` (a file under `TMP_DIR`)
+via `stat_put()`, and the posture box reads that file.
+
 `--min-score` is enforced **once, at the end**, against the compliance ARF
 (`LAST_SCAN_ARF`) — deferring it is what lets the Lynis/CVE layers run even on a
 failing compliance score, and it still gates the compliance score only, never the
@@ -261,6 +270,29 @@ Apache/nginx units; for each active one it offers (TTY) or auto-applies (non-TTY
 `--yes`) exclusion of the exact `package_*_removed` / `service_*_disabled` rules,
 so hardening never kills a serving workload. New service patterns follow this same
 detect → exclude-rule-IDs template.
+
+## Terminal-aware output
+
+The tool is often read on the machine's own console, where there is no scrollback:
+a `--scan` that prints 180 lines is eight screens the operator cannot page back
+through. So listings are sized to the terminal.
+
+`detect_term_rows()` sets `TERM_ROWS` **once, from `main()`**. It must not be
+called from inside `$( )`: command substitution replaces stdout with a pipe, so
+`-t 1` is false there and every listing looks unbounded — the first version of
+this feature was silently inert for exactly that reason, and only a real pty
+caught it.
+
+| Context | `TERM_ROWS` | Behaviour |
+|---------|-------------|-----------|
+| Terminal | rows from `tput lines`, else `stty size`, else 24 | listings trimmed, banner collapses below 30 rows |
+| Pipe / redirect / CI | `0` | nothing trimmed — logs and reports stay complete |
+| `--full` | `term_height()` returns `0` | nothing trimmed on a terminal either |
+
+`print_failing_rules()` and the two CVE summaries take a row budget; `0` means
+unlimited and keeps the original grouped-by-severity layout. With a budget they
+switch to a flat, severity-ordered list ending in `… +N more`, because the
+per-severity banners cost three rows each that a short console cannot spare.
 
 ## Conventions that keep it safe
 

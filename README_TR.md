@@ -212,8 +212,38 @@ sudo ./linuxharden.sh --scan --min-score 90 || echo "baseline altında — deplo
 | `--deadman <dk>` | `--apply` ile: `<dk>` dakika sonra `--confirm` yoksa otomatik geri al |
 | `--confirm` | Bekleyen dead-man geri almasını iptal et (hardening'i koru) |
 | `--yes` | Onay promptlarını atla (etkileşimsiz / CI) |
+| `--full` | Listeyi ekrana kırpmak yerine tüm bulguları yazdır |
 | `--min-score <N>` | `--scan` skoru N'in altındaysa hata koduyla çıkar (CI barajı) |
 | `--conf <dosya>` | Yerel .yml profil dosyası kullan |
+
+### Konsol dostu çıktı
+
+`--scan` makinenin kendi konsolunda okunmak üzere tasarlandı; orada scrollback
+yok. Çıktı **tek bir duruş kutusuyla** biter — üç katman ve önemli bulgular:
+
+```
+  ┌─ hardenix 1.3.0 · Ubuntu 24.04.4 LTS · CIS Level 1 (basic) ───┐
+  │  Compliance   92.9 %    245 pass · 19 fail                    │
+  │  Lynis        58/100    12 warnings · 41 suggestions          │
+  │  CVE          340       8 critical · 44 high · 92 advisories  │
+  ├───────────────────────────────────────────────────────────────┤
+  │  HIGH    package_telnetd_removed                              │
+  │  HIGH    sshd_disable_root_login                              │
+  │  MEDIUM  mount_option_tmp_nodev                               │
+  │  … +126 more failing rules                                    │
+  ├───────────────────────────────────────────────────────────────┤
+  │  reports/scan_20260815_141230.html                            │
+  └───────────────────────────────────────────────────────────────┘
+```
+
+Liste terminal yüksekliğine göre boyutlanır, böylece kutu her zaman tek ekrana
+sığar; ASCII banner da kısa terminallerde tek satıra iner.
+
+**Çıktı terminale gitmiyorsa hiçbir şey düşmez.** Dosyaya yönlendir, boruya ver
+ya da CI'da çalıştır — kutu *bütün* başarısız kuralları listeler; `--full`
+terminalde de aynısını yapar. `--format json` her iki durumda da etkilenmez.
+Tek katmanlı modlar (`--scan-compliance`, `--scan-lynis`, `--scan-cve`) kendi
+özet kutularını ve orijinal severity-gruplu listelerini korur.
 
 ### Çıkış kodları
 

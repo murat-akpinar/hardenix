@@ -213,8 +213,39 @@ sudo ./linuxharden.sh --scan --min-score 90 || echo "below baseline — blocking
 | `--deadman <min>` | With `--apply`: auto-revert after `<min>` minutes unless `--confirm` |
 | `--confirm` | Cancel a pending dead-man auto-revert (keep the hardening) |
 | `--yes` | Skip confirmation prompts (non-interactive / CI) |
+| `--full` | Print every finding instead of trimming the listing to the screen |
 | `--min-score <N>` | Exit non-zero if the `--scan` score is below N (CI gate) |
 | `--conf <file>` | Use a local .yml profile file |
+
+### Console-friendly output
+
+`--scan` is meant to be read on the machine's own console, where there is no
+scrollback. It ends with a **single posture box** carrying all three layers plus
+the findings that matter:
+
+```
+  ┌─ hardenix 1.3.0 · Ubuntu 24.04.4 LTS · CIS Level 1 (basic) ───┐
+  │  Compliance   92.9 %    245 pass · 19 fail                    │
+  │  Lynis        58/100    12 warnings · 41 suggestions          │
+  │  CVE          340       8 critical · 44 high · 92 advisories  │
+  ├───────────────────────────────────────────────────────────────┤
+  │  HIGH    package_telnetd_removed                              │
+  │  HIGH    sshd_disable_root_login                              │
+  │  MEDIUM  mount_option_tmp_nodev                               │
+  │  … +126 more failing rules                                    │
+  ├───────────────────────────────────────────────────────────────┤
+  │  reports/scan_20260815_141230.html                            │
+  └───────────────────────────────────────────────────────────────┘
+```
+
+The listing is sized to the terminal, so the box always fits one screen, and the
+ASCII banner collapses to one line on short terminals.
+
+**Nothing is dropped when output is not a terminal.** Redirect it, pipe it or run
+it in CI and the box lists *every* failing rule; `--full` does the same on a
+terminal. `--format json` is unaffected either way. Single-layer modes
+(`--scan-compliance`, `--scan-lynis`, `--scan-cve`) keep their own summary boxes
+and their original grouped-by-severity listing.
 
 ### Exit codes
 
