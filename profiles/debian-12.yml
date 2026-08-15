@@ -15,7 +15,7 @@ scap:
   # Debian Security OVAL feed (bookworm) for --scan-cve — note the .xml.bz2
   # filename (the bare .xml path returns 403).
   oval_url: https://www.debian.org/security/oval/oval-definitions-bookworm.xml.bz2
-  # SSG, Debian için CIS profili yayınlamıyor; en sıkı seçenek ANSSI BP28'dir.
+  # SSG publishes no CIS profile for Debian; ANSSI BP28 is the strictest option.
   profiles:
     production:  xccdf_org.ssgproject.content_profile_anssi_bp28_enhanced  # --level 2
     development: xccdf_org.ssgproject.content_profile_standard             # --level 1
@@ -36,10 +36,10 @@ backup:
 
 exclusions:
   rules:
-    # NOT: Debian ANSSI profili kullanır; CIS firewall kural ID'leri burada
-    # geçerli değildir. Firewall hardening SSH erişimini kesebilir —
-    # uyguladıktan sonra bağlantınızı mutlaka kontrol edin.
-    # NFS/SMB çalışıyorsa script çalışırken otomatik sorar; manuel için aşağıyı açın:
+    # NOTE: Debian uses the ANSSI profile; the CIS firewall rule IDs are not
+    # valid here. Firewall hardening can cut SSH access — always verify your
+    # connection after applying.
+    # If NFS/SMB is running the script asks at runtime; to force it, uncomment below:
     # - xccdf_org.ssgproject.content_rule_package_autofs_removed
     # - xccdf_org.ssgproject.content_rule_service_autofs_disabled
     # - xccdf_org.ssgproject.content_rule_package_nfs-kernel-server_removed

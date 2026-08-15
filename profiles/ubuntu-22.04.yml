@@ -35,13 +35,13 @@ backup:
 
 exclusions:
   rules:
-    # Firewall kuralları — varsayılan DROP policy SSH bağlantısını kesebilir
+    # Firewall rules — a default DROP policy can cut the SSH connection
     - xccdf_org.ssgproject.content_rule_set_ufw_default_rule
     - xccdf_org.ssgproject.content_rule_set_iptables_default_rule
     - xccdf_org.ssgproject.content_rule_ip6tables_rules_for_open_ports
     - xccdf_org.ssgproject.content_rule_nftables_rules_permanent
     - xccdf_org.ssgproject.content_rule_set_nftables_table
-    # NFS sunucusu çalışıyorsa aşağıdaki satırları uncomment edin:
+    # If an NFS server is running, uncomment the lines below:
     # - xccdf_org.ssgproject.content_rule_package_autofs_removed
     # - xccdf_org.ssgproject.content_rule_service_autofs_disabled
     # - xccdf_org.ssgproject.content_rule_package_nfs-kernel-server_removed

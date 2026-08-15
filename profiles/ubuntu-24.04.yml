@@ -19,8 +19,8 @@ scap:
     development: xccdf_org.ssgproject.content_profile_cis_level1_server  # --level 1
 
 backup:
-  # CIS remediation'ın dokunduğu tüm config konumları — unapply'ın tam geri
-  # alabilmesi için. Var olmayan yollar yedeklemede otomatik atlanır.
+  # Every config location CIS remediation touches, so unapply can restore
+  # exactly. Paths that do not exist are skipped automatically at backup time.
   config_dirs:
     - /etc/ssh
     - /etc/sysctl.conf
@@ -39,18 +39,18 @@ backup:
     - /etc/rsyslog.d
     - /etc/logrotate.conf
     - /etc/logrotate.d
-    # systemd (coredump, journald, timesyncd, resolved drop-in'leri)
+    # systemd (coredump, journald, timesyncd, resolved drop-ins)
     - /etc/systemd
-    # Boot/kernel & servis varsayılanları (grub cmdline vb.)
+    # Boot/kernel & service defaults (grub cmdline etc.)
     - /etc/default
-    # Yasal uyarı banner'ları
+    # Legal warning banners
     - /etc/issue
     - /etc/issue.net
     - /etc/motd
-    # Zaman senkronu
+    # Time synchronisation
     - /etc/chrony
     - /etc/chrony.conf
-    # cron / at erişim kontrolü ve zamanlanmış işler
+    # cron / at access control and scheduled jobs
     - /etc/crontab
     - /etc/cron.d
     - /etc/cron.hourly
@@ -64,18 +64,18 @@ backup:
     # TCP wrappers
     - /etc/hosts.allow
     - /etc/hosts.deny
-    # Mount seçenekleri (nodev/nosuid/noexec)
+    # Mount options (nodev/nosuid/noexec)
     - /etc/fstab
 
 exclusions:
   rules:
-    # Firewall kuralları — varsayılan DROP policy SSH bağlantısını kesebilir
+    # Firewall rules — a default DROP policy can cut the SSH connection
     - xccdf_org.ssgproject.content_rule_set_ufw_default_rule
     - xccdf_org.ssgproject.content_rule_set_iptables_default_rule
     - xccdf_org.ssgproject.content_rule_ip6tables_rules_for_open_ports
     - xccdf_org.ssgproject.content_rule_nftables_rules_permanent
     - xccdf_org.ssgproject.content_rule_set_nftables_table
-    # NFS sunucusu çalışıyorsa aşağıdaki satırları uncomment edin:
+    # If an NFS server is running, uncomment the lines below:
     # - xccdf_org.ssgproject.content_rule_package_autofs_removed
     # - xccdf_org.ssgproject.content_rule_service_autofs_disabled
     # - xccdf_org.ssgproject.content_rule_package_nfs-kernel-server_removed

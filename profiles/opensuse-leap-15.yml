@@ -35,7 +35,7 @@ backup:
 
 exclusions:
   rules:
-    # NFS sunucusu çalışıyorsa aşağıdaki satırları uncomment edin:
+    # If an NFS server is running, uncomment the lines below:
     # - xccdf_org.ssgproject.content_rule_package_autofs_removed
     # - xccdf_org.ssgproject.content_rule_service_autofs_disabled
     # - xccdf_org.ssgproject.content_rule_package_nfs-utils_removed

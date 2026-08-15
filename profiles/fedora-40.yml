@@ -12,7 +12,7 @@ packages:
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-fedora-ds.xml
-  # SSG, Fedora için CIS profili yayınlamıyor; OSPP en kapsamlı profildir.
+  # SSG publishes no CIS profile for Fedora; OSPP is the most complete profile.
   profiles:
     production:  xccdf_org.ssgproject.content_profile_ospp      # --level 2
     development: xccdf_org.ssgproject.content_profile_standard  # --level 1
@@ -34,7 +34,7 @@ backup:
 
 exclusions:
   rules:
-    # NFS sunucusu çalışıyorsa aşağıdaki satırları uncomment edin:
+    # If an NFS server is running, uncomment the lines below:
     # - xccdf_org.ssgproject.content_rule_package_autofs_removed
     # - xccdf_org.ssgproject.content_rule_service_autofs_disabled
     # - xccdf_org.ssgproject.content_rule_package_nfs-utils_removed

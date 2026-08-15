@@ -8,7 +8,7 @@ packages:
   manager: dnf
   oscap: openscap-utils
   ssg: scap-security-guide
-  lynis: lynis   # EPEL'de — eksikse önce: dnf install -y epel-release
+  lynis: lynis   # in EPEL — if missing, first: dnf install -y epel-release
 
 scap:
   xml_path: /usr/share/xml/scap/ssg/content/ssg-rl9-ds.xml
@@ -33,7 +33,7 @@ backup:
 
 exclusions:
   rules:
-    # NFS sunucusu çalışıyorsa aşağıdaki satırları uncomment edin:
+    # If an NFS server is running, uncomment the lines below:
     # - xccdf_org.ssgproject.content_rule_package_autofs_removed
     # - xccdf_org.ssgproject.content_rule_service_autofs_disabled
     # - xccdf_org.ssgproject.content_rule_package_nfs-utils_removed
