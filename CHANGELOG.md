@@ -1,5 +1,10 @@
 ## [unreleased]
 
+### 🐛 Bug Fixes
+
+- Repair defects found in a full script review ([294e1cf](https://github.com/murat-akpinar/hardenix/commit/294e1cfda8c251dbef3bc5870e836d4abccee4a6))
+Eleven defects, each reproduced and re-verified on the Ubuntu 24.04.4 and Rocky 9.8 test VMs.
+
 ### 📚 Documentation
 
 - Add v1.2.0 lynis validation results to test sections ([7adabb0](https://github.com/murat-akpinar/hardenix/commit/7adabb00b5e0abad1eddc46f2fc2d53500c9f8ac))
@@ -7,6 +12,13 @@
 The four files under todo/ carried three problems: a finished plan taking up 817 lines of step-by-step instructions, a roadmap that marked FAZ 2 complete when five of its six items were never implemented, and a test procedure split away from the plan whose gates it defines.
 - Rewrite CLAUDE.md as the in-repo rulebook ([ced1b38](https://github.com/murat-akpinar/hardenix/commit/ced1b389febf6a080ccf3ce0c8893fac30b8ee92))
 CLAUDE.md pointed at four rulebooks under .rules/ that do not exist in the repository - the directory was gitignored, so the rules had no history and no presence on a fresh checkout. The rules now live in CLAUDE.md itself.
+- Document exit codes, backup verification and profile lookup ([1ed568a](https://github.com/murat-akpinar/hardenix/commit/1ed568af880c88065c4e774286080cd77f531272))
+- Both READMEs gain an exit-code table: usage errors are now 1, the --min-score   gate is 2, and --apply is 0 with or without --deadman. - Record that create_backup() verifies the archive before the first mutation and   that the optional --scan layers degrade instead of aborting. - Describe the three-candidate profile lookup and why rolling releases need the   bare <id>.yml form. - Correct the pipeline diagram: detect_distro(), not banner(), prints the applied   level. - Replace the YOUR_GITHUB_USER placeholder, fix the distro badge (9, not 8), and   drop exclusions.users from the sample profile — parse_conf() never read it.
+
+### 🎨 Styling
+
+- *(profiles)* Translate remaining comments to english ([226504e](https://github.com/murat-akpinar/hardenix/commit/226504eb0d7161c7037b931f4e40e58b743398b9))
+CLAUDE.md makes English the language of everything that lands in the repo, with todo.md as the sole exception; eight profiles still carried Turkish comments.
 
 ### ⚙️ Miscellaneous Tasks
 
