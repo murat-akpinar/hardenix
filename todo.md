@@ -452,6 +452,40 @@ Rocky 9.8 @ .190):
 - **Geçitte yakalanan:** `unattended-upgrades` dpkg kilidini tutarken `--install`
   ham apt hatasıyla düşüyor → pre-flight maddesine eklendi (bölüm 2, P0).
 
+### Konsol dostu çıktı — v1.3.0 ✅ (2026-08-15)
+
+**Sorun:** makinenin kendi konsoluna oturan (SSH atamayan) biri için `--scan`
+183 satır = 24 satırlık ekranda ~8 ekran; scrollback yok, geri bakılamıyor.
+
+**Karar:** birleşik özet + terminal yüksekliğine göre kırpılmış detay.
+
+- `--scan` sonunda tek **duruş kutusu**: compliance / Lynis / CVE başlık sayıları +
+  en kötü kurallar + rapor yolu. Bu moddayken katmanların kendi kutuları bastırılır;
+  tek katmanlı modlar (`--scan-compliance` / `--scan-lynis` / `--scan-cve`) kendi
+  kutularını aynen korur.
+- Listeler `TERM_ROWS`'a göre boyutlanır; ASCII banner 30 satırın altında tek satıra iner.
+- **TTY değilse hiçbir şey kırpılmaz** — yönlendirme/boru/CI tam listeyi alır,
+  yani log ve raporlar değişmez. `--full` terminalde de tam listeyi zorlar.
+- Katmanlar subshell'de koştuğu için `POSTURE_STATS` dosyası üzerinden raporlar
+  (global değişken subshell sınırını geçmez).
+
+**Ölçüm (Ubuntu 24.04.4, gerçek 24 satırlık pty):**
+
+| Senaryo | Önce | Sonra |
+|---|---|---|
+| `--scan`, 24 satırlık terminal | 183 satır (~8 ekran) | **29 satır**; kutu 19 satır, ekrana tam sığıyor |
+| `--scan-compliance`, 24 satırlık terminal (Rocky) | 159 satır | **29 satır** |
+| `--scan` > dosya (CI/log) | 183 satır | 154 satır, **103 kuralın tamamı** listeleniyor, kırpma yok |
+| `--scan --full` terminalde | — | 142 satır (tam) |
+
+`--min-score 99` barajı kutudan sonra hâlâ tetikleniyor (exit 2).
+
+**Geçitte yakalanan:** ilk sürüm sessizce hiçbir şey yapmıyordu — `term_height`
+`$( )` içinden çağrılıyordu, orada stdout boru olduğu için `-t 1` hep false
+dönüyor. Tespit `detect_term_rows()` ile `main()`'e, substitution dışına alındı.
+Bunu yalnız gerçek pty'de test etmek ortaya çıkardı; `bash -n` + shellcheck
+ikisi de yeşildi.
+
 ### Bulgular (kalıcı, davranışı etkiler)
 
 - **Mask sırası:** boş sistemi hardenleyip **sonra** nginx/apache kurarsan servis maskeli

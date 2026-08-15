@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly SCRIPT_VERSION="1.2.1"
+readonly SCRIPT_VERSION="1.3.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly BACKUP_BASE="/var/lib/linuxharden"
@@ -23,6 +23,14 @@ MIN_SCORE=""            # --min-score N: exit non-zero if scan score < N
 DEADMAN_MIN=""          # --deadman N: auto-revert N min after apply unless --confirm
 DEFER_MIN_SCORE=false   # true during --scan (combined): gate runs after all layers
 LAST_SCAN_ARF=""        # set by run_scan; consumed by run_scan_full's final gate
+FULL_OUTPUT=false       # --full: never trim listings to the terminal height
+TERM_ROWS=0             # set once by detect_term_rows(); 0 = not a TTY, never trim
+COMBINED_SCAN=false     # true during --scan: layers feed one posture box instead
+                        # of each printing its own summary
+COMPACT=false           # true during --scan on a terminal: one-line sections,
+                        # secondary detail lines dropped
+POSTURE_STATS=""        # key=value file the layers write; read by the posture box.
+                        # A file, not globals: the optional layers run in subshells.
 readonly DEADMAN_UNIT="hardenix-deadman"
 # ENV_PROFILE is the internal key into scap.profiles; it is driven solely by --level.
 # Default: level 2 (strict). --level 1 switches to the basic baseline.
@@ -65,10 +73,29 @@ _spin() {
     printf "\r%-72s\r" ""
 }
 log_section() {
+    # In compact mode a rule takes one row, not four — three layers of --scan
+    # would otherwise spend a dozen rows of a 24-row console on decoration.
+    if [[ "$COMPACT" == true ]]; then
+        echo -e "${BLUE}${BOLD}▸ $1${NC}"
+        return
+    fi
     echo ""
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${BLUE}${BOLD}  $1${NC}"
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+# Secondary information — paths, profile ids, feed URLs. Worth printing normally;
+# dropped in compact mode, where the posture box already carries the report path.
+log_detail() {
+    [[ "$COMPACT" == true ]] && return 0
+    log_info "$1"
+}
+
+# Vertical breathing room; nothing to breathe with on a 24-row console.
+log_gap() {
+    [[ "$COMPACT" == true ]] && return 0
+    echo ""
 }
 
 # Create the private scratch dir on first use. The old fixed /tmp/linuxharden_$$
@@ -79,7 +106,42 @@ ensure_tmpdir() {
     TMP_DIR=$(mktemp -d "/tmp/linuxharden.XXXXXXXX")
 }
 
+# ── Terminal Awareness ────────────────────────────────────────────────────────
+# Rows on the terminal, or 0 when output is not a TTY. 0 means "no limit": a
+# redirect, a pipe or CI must keep getting the complete listing, because that is
+# what ends up in a log or a report. Same TTY-vs-pipe split _spin() already uses.
+#
+# This MUST run from main(), never from inside $( ): command substitution makes
+# stdout a pipe, so `-t 1` there is always false and every listing would look
+# unbounded. That is exactly how the first version of this silently did nothing.
+detect_term_rows() {
+    if [[ ! -t 1 ]]; then TERM_ROWS=0; return 0; fi
+    local h=""
+    h=$(tput lines 2>/dev/null || true)
+    [[ "$h" =~ ^[0-9]+$ ]] || h=$(stty size 2>/dev/null | awk '{print $1}' || true)
+    [[ "$h" =~ ^[0-9]+$ ]] || h=24
+    TERM_ROWS="$h"
+}
+
+term_height() {
+    if [[ "$FULL_OUTPUT" == true ]]; then echo 0; return 0; fi
+    echo "$TERM_ROWS"
+}
+
+# Record a metric for the combined posture box. No-op outside --scan.
+stat_put() {
+    [[ -n "$POSTURE_STATS" ]] || return 0
+    printf '%s=%s\n' "$1" "$2" >> "$POSTURE_STATS"
+}
+
 banner() {
+    # The ASCII art is 10 of the 24 rows on a plain console. Keep it where there
+    # is room; fall back to one line where every row counts. Reads TERM_ROWS
+    # directly — --full has not been parsed yet when the banner prints.
+    if [[ "$TERM_ROWS" -ne 0 && "$TERM_ROWS" -lt 30 ]]; then
+        echo -e "${CYAN}${BOLD}hardenix${NC} ${BOLD}v${SCRIPT_VERSION}${NC} — OpenSCAP-based hardening"
+        return
+    fi
     echo -e "${CYAN}${BOLD}"
     echo "  ██╗  ██╗ █████╗ ██████╗ ██████╗ ███████╗███╗   ██╗██╗██╗  ██╗"
     echo "  ██║  ██║██╔══██╗██╔══██╗██╔══██╗██╔════╝████╗  ██║██║╚██╗██╔╝"
@@ -113,6 +175,7 @@ usage() {
     echo "  --level <1|2>       Hardening level: 1 = CIS Level 1 (basic), 2 = CIS Level 2 (strict, default)"
     echo "  --format <type>     Report format: html | json | both  (default: html)"
     echo "  --yes               Skip confirmation prompts (non-interactive / CI)"
+    echo "  --full              Print every finding instead of trimming to the screen"
     echo "  --min-score <N>     Exit non-zero if --scan score is below N (CI gate)"
     echo "  --deadman <min>     With --apply: auto-revert after <min> unless --confirm"
     echo "  --confirm           Cancel a pending dead-man auto-revert (keep hardening)"
@@ -195,6 +258,7 @@ parse_args() {
             --confirm)   set_mode "confirm" ;;
             --deadman)   require_val "$1" "${2:-}"; DEADMAN_MIN="$2"; shift ;;
             --yes|--non-interactive) ASSUME_YES=true ;;
+            --full)      FULL_OUTPUT=true ;;
             --min-score) require_val "$1" "${2:-}"; MIN_SCORE="$2"; shift ;;
             --level)     require_val "$1" "${2:-}"; SEC_LEVEL="$2"; shift ;;
             --format)    require_val "$1" "${2:-}"; REPORT_FORMAT="$2"; shift ;;
@@ -846,11 +910,11 @@ generate_html_report() {
     local arf="$1" html="$2"
     if command -v oscap-report &>/dev/null; then
         oscap-report --output "$html" "$arf" 2>/dev/null \
-            && log_info "HTML report: $html" \
+            && log_detail "HTML report: $html" \
             || log_warn "oscap-report failed (try: pip3 install openscap-report)"
     else
         oscap xccdf generate report --output "$html" "$arf" 2>/dev/null \
-            && log_info "HTML report: $html" \
+            && log_detail "HTML report: $html" \
             || log_warn "HTML report generation failed"
     fi
 }
@@ -890,18 +954,21 @@ PYEOF
     log_info "JSON report: $json"
 }
 
+# print_failing_rules <arf> [budget]
+# budget = how many listing rows may be printed; 0 = unlimited (pipe/--full).
 print_failing_rules() {
-    local arf="$1"
+    local arf="$1" budget="${2:-0}"
     [[ ! -f "$arf" ]] && return
     command -v python3 &>/dev/null || return
 
-    python3 - "$arf" <<'PYEOF'
+    python3 - "$arf" "$budget" <<'PYEOF'
 import sys
 from collections import defaultdict
 import xml.etree.ElementTree as ET
 
 NS   = 'http://checklists.nist.gov/xccdf/1.2'
 tree = ET.parse(sys.argv[1]).getroot()
+budget = int(sys.argv[2]) if len(sys.argv) > 2 else 0
 
 rules = {}
 for rule in tree.iter(f'{{{NS}}}Rule'):
@@ -943,7 +1010,23 @@ SEP_W = 72
 RW    = 42
 TW    = 34
 
-for sev in ['high', 'medium', 'low', 'unknown']:
+# With a budget, drop the per-severity banners (3 rows each) and print a flat,
+# severity-ordered list — the highest-severity findings are what has to survive
+# the trim on a console that cannot scroll.
+if budget:
+    shown = 0
+    for _, sev, short, title in failed:
+        if shown >= budget:
+            break
+        col = SEV_COLOR.get(sev, NC)
+        r = (short[:RW-1] + '…') if len(short) > RW else short
+        t = (title[:TW-1] + '…') if len(title) > TW else title
+        print(f"    {col}{sev.upper():<7}{NC} {r:<{RW}}  {t}")
+        shown += 1
+    if len(failed) > shown:
+        print(f"    {BOLD}… +{len(failed) - shown} more{NC} — full list in the report (or use --full)")
+else:
+  for sev in ['high', 'medium', 'low', 'unknown']:
     items = groups.get(sev, [])
     if not items:
         continue
@@ -968,12 +1051,16 @@ print(f"\n  {BOLD}Total: {total} failing rules{NC}  ({'  ·  '.join(parts)})")
 PYEOF
 }
 
+# print_scan_summary <arf>
+# Always records the numbers for the combined posture box; prints its own box
+# only outside --scan, where that box IS the summary.
 print_scan_summary() {
     local arf="$1"
     [[ ! -f "$arf" ]] && return
     command -v python3 &>/dev/null || return
 
-    python3 - "$arf" <<'PYEOF'
+    local counts
+    counts=$(python3 - "$arf" <<'PYEOF'
 import sys, xml.etree.ElementTree as ET
 
 NS = 'http://checklists.nist.gov/xccdf/1.2'
@@ -989,16 +1076,129 @@ for rr in ET.parse(sys.argv[1]).getroot().iter(f'{{{NS}}}rule-result'):
 
 total = p + f
 score = round(p / total * 100, 1) if total > 0 else 0.0
-G = '\033[0;32m'; R = '\033[0;31m'; Y = '\033[1;33m'; B = '\033[1m'; NC = '\033[0m'
+print(f"{p} {f} {e} {o} {score}")
+PYEOF
+) || return 0
 
-score_str = f"{score}%"
-print(f"\n  {B}┌─ Scan Summary {'─'*31}┐{NC}")
-print(f"  │  {G}Pass       {NC}: {p:<6}                         │")
-print(f"  │  {R}Fail       {NC}: {f:<6}                         │")
-print(f"  │  {Y}Error      {NC}: {e:<6}                         │")
-print(f"  │  Not checked: {o:<6}                         │")
-print(f"  │  Score      : {B}{score_str}{NC}{' '*(31-len(score_str))}│")
-print(f"  {B}└{'─'*46}┘{NC}")
+    local p f e o score
+    read -r p f e o score <<<"$counts"
+    stat_put compliance_pass  "$p"
+    stat_put compliance_fail  "$f"
+    stat_put compliance_score "$score"
+
+    [[ "$COMBINED_SCAN" == true ]] && return 0
+
+    local score_str="${score}%"
+    echo ""
+    printf "  ${BOLD}┌─ Scan Summary %s┐${NC}\n" "$(printf '─%.0s' $(seq 1 31))"
+    printf "  │  ${GREEN}Pass       ${NC}: %-6s                         │\n" "$p"
+    printf "  │  ${RED}Fail       ${NC}: %-6s                         │\n" "$f"
+    printf "  │  ${YELLOW}Error      ${NC}: %-6s                         │\n" "$e"
+    printf "  │  Not checked: %-6s                         │\n" "$o"
+    printf "  │  Score      : ${BOLD}%s${NC}%*s│\n" "$score_str" $((31 - ${#score_str})) ""
+    printf "  ${BOLD}└%s┘${NC}\n" "$(printf '─%.0s' $(seq 1 46))"
+}
+
+# One box for the whole posture scan: every layer's headline number plus the
+# findings that matter, sized to the terminal. On a console that cannot scroll
+# this is the screen the operator is left looking at, so it has to be complete
+# enough to act on and short enough to survive.
+# print_posture_summary <arf> <report_path> <finding_rows>
+print_posture_summary() {
+    local arf="$1" report="$2" rows="${3:-6}"
+    command -v python3 &>/dev/null || return 0
+
+    python3 - "$POSTURE_STATS" "$arf" "$report" "$rows" \
+              "$SCRIPT_VERSION" "$DISTRO_PRETTY" "$SEC_LEVEL_LABEL" <<'PYEOF'
+import sys, os, re
+import xml.etree.ElementTree as ET
+
+stats_f, arf, report, rows, ver, distro, level = sys.argv[1:8]
+rows = int(rows)
+
+R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; B='\033[1m'; NC='\033[0m'
+ANSI = re.compile(r'\033\[[0-9;]*m')
+W = 62
+def vlen(s): return len(ANSI.sub('', s))
+def row(s):  return f"  │  {s}{' ' * max(0, W - vlen(s))}  │"
+def sep():   return "  ├" + "─" * (W + 4) + "┤"
+
+st = {}
+if stats_f and os.path.exists(stats_f):
+    for line in open(stats_f):
+        if '=' in line:
+            k, v = line.rstrip('\n').split('=', 1)
+            st[k] = v
+
+# The inner width between the corners is W+4; the header spends 3 of it on
+# "─ " and the space after the title, so the title gets at most W+1.
+title = f"hardenix {ver} · {distro} · {level}"
+if len(title) > W + 1:
+    title = title[:W] + '…'
+print()
+print(f"  {B}┌─ {title} " + "─" * max(0, W + 1 - len(title)) + f"┐{NC}")
+
+try:
+    score = float(st['compliance_score'])
+except (KeyError, ValueError):
+    score = None
+if score is not None:
+    col = G if score >= 90 else (Y if score >= 70 else R)
+    print(row(f"{'Compliance':<12} {col}{f'{score} %':<9}{NC} "
+              f"{st.get('compliance_pass','?')} pass · {st.get('compliance_fail','?')} fail"))
+else:
+    print(row(f"{'Compliance':<12} {Y}{'skipped':<9}{NC} scan produced no usable result"))
+
+if 'lynis_index' in st:
+    idx = st['lynis_index']
+    try:    col = G if int(idx) >= 75 else (Y if int(idx) >= 50 else R)
+    except ValueError: col = NC
+    print(row(f"{'Lynis':<12} {col}{idx+'/100':<9}{NC} "
+              f"{st.get('lynis_warnings','0')} warnings · {st.get('lynis_suggestions','0')} suggestions"))
+else:
+    print(row(f"{'Lynis':<12} {Y}{'skipped':<9}{NC} not installed or audit failed"))
+
+if 'cve_total' in st:
+    def num(k):
+        try:    return int(st.get(k, 0))
+        except ValueError: return 0
+    crit, high = num('cve_critical'), num('cve_high')
+    col  = R if (crit or high) else G
+    tail = f"{crit} critical · {high} high · {st.get('cve_advisories','0')} advisories"
+    print(row(f"{'CVE':<12} {col}{st['cve_total']:<9}{NC} {tail}"))
+else:
+    print(row(f"{'CVE':<12} {Y}{'skipped':<9}{NC} no feed configured or scan failed"))
+
+# Top failing rules, worst severity first.
+SEV_ORDER = {'high': 0, 'medium': 1, 'low': 2, 'unknown': 3}
+SEV_COLOR = {'high': R, 'medium': Y, 'low': '\033[0;34m', 'unknown': '\033[0;37m'}
+failed = []
+if arf and os.path.exists(arf):
+    NS = 'http://checklists.nist.gov/xccdf/1.2'
+    tree = ET.parse(arf).getroot()
+    sev_of = {r.get('id',''): r.get('severity','unknown') for r in tree.iter(f'{{{NS}}}Rule')}
+    for rr in tree.iter(f'{{{NS}}}rule-result'):
+        res = rr.find(f'{{{NS}}}result')
+        if res is not None and res.text and res.text.strip() == 'fail':
+            rid = rr.get('idref', '')
+            sev = sev_of.get(rid, 'unknown')
+            short = rid.split('_rule_')[-1] if '_rule_' in rid else rid
+            failed.append((SEV_ORDER.get(sev, 3), sev, short))
+    failed.sort()
+
+if failed:
+    print(sep())
+    shown = failed if rows == 0 else failed[:max(1, rows)]
+    for _, sev, short in shown:
+        col = SEV_COLOR.get(sev, NC)
+        print(row(f"{col}{sev.upper():<7}{NC} {short[:W-9]}"))
+    if len(failed) > len(shown):
+        print(row(f"{B}… +{len(failed) - len(shown)} more failing rules{NC}"))
+
+if report:
+    print(sep())
+    print(row(f"{C}{report[:W]}{NC}"))
+print(f"  {B}└" + "─" * (W + 4) + f"┘{NC}")
 PYEOF
 }
 
@@ -1229,10 +1429,10 @@ run_scan() {
     local ts; ts=$(date +%Y%m%d_%H%M%S)
     local arf_file="${REPORT_DIR}/scan_${ts}.arf"
 
-    log_info "Profile : $ACTIVE_PROFILE_ID"
-    log_info "Content : $XML_PATH"
-    log_info "Reports : $REPORT_DIR"
-    echo ""
+    log_detail "Profile : $ACTIVE_PROFILE_ID"
+    log_detail "Content : $XML_PATH"
+    log_detail "Reports : $REPORT_DIR"
+    log_gap
 
     local scan_pid err_log="${REPORT_DIR}/scan_${ts}.err"
     # shellcheck disable=SC2046
@@ -1260,10 +1460,30 @@ run_scan() {
             ;;
     esac
 
-    print_failing_rules "$arf_file"
-    echo ""
+    # In combined mode the posture box carries the findings — printing them here
+    # too would defeat the point. Standalone, trim the listing to the screen.
+    if [[ "$COMBINED_SCAN" != true ]]; then
+        local h budget=0
+        h=$(term_height)
+        if [[ "$h" -gt 0 ]]; then
+            # 26 = measured fixed overhead (banner, detection, section, info
+            # lines, the "+N more" line, the totals line and the summary box).
+            # Below ~30 rows the budget floors at 3 and the output runs a little
+            # long — by design: what overflows is the header, and the findings
+            # plus the score box are last, so they are what stays on screen.
+            budget=$(( h - 26 ))
+            if [[ "$budget" -lt 3 ]]; then budget=3; fi
+        fi
+        print_failing_rules "$arf_file" "$budget"
+        echo ""
+    fi
     print_scan_summary "$arf_file"
 
+    # Point at a file that was actually written for the chosen --format.
+    case "$REPORT_FORMAT" in
+        json) stat_put compliance_report "${REPORT_DIR}/scan_${ts}.json" ;;
+        *)    stat_put compliance_report "${REPORT_DIR}/scan_${ts}.html" ;;
+    esac
     LAST_SCAN_ARF="$arf_file"
     # --min-score gate — deferred during the combined --scan so the Lynis and
     # CVE layers still run; run_scan_full enforces it at the very end.
@@ -1279,7 +1499,7 @@ download_oval_feed() {
 
     # Reuse a fresh cached copy (< 24h old) to avoid re-downloading every run.
     if [[ -f "$out" ]] && find "$out" -mtime -1 2>/dev/null | grep -q .; then
-        log_info "Using cached OVAL feed ($(date -r "$out" '+%Y-%m-%d %H:%M'))"
+        log_detail "Using cached OVAL feed ($(date -r "$out" '+%Y-%m-%d %H:%M'))"
         return 0
     fi
 
@@ -1318,14 +1538,17 @@ PYEOF
 # Summarize OVAL results: count vulnerable definitions, group by severity,
 # joining results (true/false) with the feed metadata (severity + CVE refs).
 print_cve_summary() {
-    local results="$1" feed="$2"
+    local results="$1" feed="$2" budget="${3:-0}"
     command -v python3 &>/dev/null || return 0
 
-    python3 - "$results" "$feed" <<'PYEOF'
+    python3 - "$results" "$feed" "$budget" "$POSTURE_STATS" "$COMBINED_SCAN" <<'PYEOF'
 import sys, re
 import xml.etree.ElementTree as ET
 
 results_f, feed_f = sys.argv[1], sys.argv[2]
+budget    = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+stats_f   = sys.argv[4] if len(sys.argv) > 4 else ''
+combined  = (len(sys.argv) > 5 and sys.argv[5] == 'true')
 G='\033[0;32m'; R='\033[0;31m'; Y='\033[1;33m'; C='\033[0;36m'; B='\033[1m'; NC='\033[0m'
 
 def lname(t): return t.rsplit('}', 1)[-1]
@@ -1376,8 +1599,17 @@ for _, (s, _t) in cve_map.items():
 # CVE list first (worst severity first), then the summary box at the bottom —
 # same layout as --scan (findings on top, score box last).
 items = sorted(cve_map.items(), key=lambda kv: (rk(kv[1][0]), kv[0]))
-LIMIT = 40
-if items:
+
+if stats_f:
+    with open(stats_f, 'a') as sf:
+        sf.write(f"cve_total={len(cve_map)}\n")
+        sf.write(f"cve_advisories={adv_count}\n")
+        for key, label in (('cve_critical','Critical'), ('cve_high','High'),
+                           ('cve_medium','Medium'), ('cve_low','Low')):
+            sf.write(f"{key}={sev_count.get(label, 0)}\n")
+
+LIMIT = budget if budget else 40
+if items and not combined:
     print(f"\n  {B}Vulnerable CVEs:{NC}")
     for cid, (s, t) in items[:LIMIT]:
         col = R if s in ('Critical','High') else (Y if s == 'Medium' else NC)
@@ -1385,6 +1617,9 @@ if items:
         print(f"    {col}{(s or 'Unknown'):<9}{NC} {cid:<18} {u.group() if u else ''}")
     if len(items) > LIMIT:
         print(f"    … (+{len(items) - LIMIT} more — full list in the HTML report)")
+
+if combined:
+    sys.exit(0)
 
 parts = []
 for s in sorted(sev_count, key=rk):
@@ -1404,11 +1639,14 @@ PYEOF
 
 # Parse `dnf updateinfo list cves --security` output into the CVE-centric summary.
 print_cve_summary_dnf() {
-    local f="$1"
+    local f="$1" budget="${2:-0}"
     command -v python3 &>/dev/null || { cat "$f"; return 0; }
-    python3 - "$f" <<'PYEOF'
+    python3 - "$f" "$budget" "$POSTURE_STATS" "$COMBINED_SCAN" <<'PYEOF'
 import sys, re
 f = sys.argv[1]
+budget   = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+stats_f  = sys.argv[3] if len(sys.argv) > 3 else ''
+combined = (len(sys.argv) > 4 and sys.argv[4] == 'true')
 R='\033[0;31m'; Y='\033[1;33m'; NC='\033[0m'; B='\033[1m'
 rank = {'Critical':0,'Important':1,'Moderate':2,'Low':3,'':4}
 cve_map = {}; advs = set()
@@ -1425,14 +1663,28 @@ sev_count = {}
 for _, s in cve_map.items(): sev_count[s] = sev_count.get(s,0)+1
 # CVE list first, then the summary box at the bottom — same layout as --scan.
 items = sorted(cve_map.items(), key=lambda kv: (rank.get(kv[1],9), kv[0]))
-LIMIT = 40
-if items:
+
+if stats_f:
+    with open(stats_f, 'a') as sf:
+        sf.write(f"cve_total={len(cve_map)}\n")
+        sf.write(f"cve_advisories={len(advs)}\n")
+        # dnf errata severities map onto the same four buckets the box prints.
+        for key, label in (('cve_critical','Critical'), ('cve_high','Important'),
+                           ('cve_medium','Moderate'), ('cve_low','Low')):
+            sf.write(f"{key}={sev_count.get(label, 0)}\n")
+
+LIMIT = budget if budget else 40
+if items and not combined:
     print(f"\n  {B}Vulnerable CVEs:{NC}")
     for c, s in items[:LIMIT]:
         col = R if s in ('Critical','Important') else (Y if s == 'Moderate' else NC)
         print(f"    {col}{(s or 'Unknown'):<10}{NC} {c}")
     if len(items) > LIMIT:
         print(f"    … (+{len(items)-LIMIT} more — see the report file)")
+
+if combined:
+    sys.exit(0)
+
 parts = []
 for s in sorted(sev_count, key=lambda x: rank.get(x,9)):
     n = sev_count[s]
@@ -1456,8 +1708,8 @@ scan_cve_dnf() {
     local ts; ts=$(date +%Y%m%d_%H%M%S)
     local report="${REPORT_DIR}/cve_${ts}.txt"
 
-    log_info "Source : ${pm} updateinfo (vendor errata)"
-    echo ""
+    log_detail "Source : ${pm} updateinfo (vendor errata)"
+    log_gap
     local pid
     "$pm" -q updateinfo list cves --security >"$report" 2>/dev/null &
     pid=$!
@@ -1465,8 +1717,9 @@ scan_cve_dnf() {
     wait "$pid" 2>/dev/null || true
 
     [[ -f "$report" ]] || { log_error "CVE scan produced no output."; exit 1; }
-    log_info "Report : $report"
-    print_cve_summary_dnf "$report"
+    log_detail "Report : $report"
+    stat_put cve_report "$report"
+    print_cve_summary_dnf "$report" "$(cve_list_budget)"
 }
 
 # Debian/Ubuntu (and SUSE): evaluate the vendor OVAL feed with oscap.
@@ -1486,12 +1739,12 @@ scan_cve_oval() {
     local feed; feed="${REPORT_DIR}/oval-feed/$(basename "${OVAL_URL%.bz2}")"
     feed="${feed%.gz}"
 
-    log_info "Feed URL : $OVAL_URL"
+    log_detail "Feed URL : $OVAL_URL"
     download_oval_feed "$OVAL_URL" "$feed" || exit 1
 
     local results="${REPORT_DIR}/cve_${ts}.xml"
     local report="${REPORT_DIR}/cve_${ts}.html"
-    echo ""
+    log_gap
 
     local pid
     oscap oval eval --results "$results" --report "$report" "$feed" >/dev/null 2>&1 &
@@ -1500,9 +1753,18 @@ scan_cve_oval() {
     wait "$pid" 2>/dev/null || true   # oscap oval eval may exit non-zero
 
     [[ -f "$results" ]] || { log_error "CVE scan produced no output."; exit 1; }
-    log_info "HTML report: $report"
+    log_detail "HTML report: $report"
 
-    print_cve_summary "$results" "$feed"
+    print_cve_summary "$results" "$feed" "$(cve_list_budget)"
+}
+
+# How many CVE rows the listing may print. 0 = unlimited (pipe, --full).
+cve_list_budget() {
+    local h; h=$(term_height)
+    if [[ "$h" -eq 0 ]]; then echo 0; return; fi
+    local b=$(( h - 18 ))            # section header + feed lines + summary box
+    if [[ "$b" -lt 3 ]]; then b=3; fi
+    echo "$b"
 }
 
 run_scan_cve() {
@@ -1528,6 +1790,12 @@ print_lynis_summary() {
     index=$(awk -F'=' '/^hardening_index=/{print $2}' "$dat")
     warns=$(grep -c '^warning\[\]=' "$dat" || true)
     sugg=$(grep -c '^suggestion\[\]=' "$dat" || true)
+
+    stat_put lynis_index       "${index:-?}"
+    stat_put lynis_warnings    "${warns:-0}"
+    stat_put lynis_suggestions "${sugg:-0}"
+
+    [[ "$COMBINED_SCAN" == true ]] && return 0
 
     echo ""
     echo -e "  ┌─ Lynis Audit Summary ────────────────────────┐"
@@ -1585,7 +1853,7 @@ run_scan_lynis() {
 
     local report_copy="${REPORT_DIR}/lynis_${ts}.dat"
     cp "$LYNIS_REPORT_DAT" "$report_copy"
-    log_info "Report : $report_copy"
+    log_detail "Report : $report_copy"
     print_lynis_summary "$LYNIS_REPORT_DAT"
 }
 
@@ -1595,27 +1863,52 @@ run_scan_lynis() {
 # when their tooling/feed is missing. --min-score is enforced last.
 run_scan_full() {
     DEFER_MIN_SCORE=true
+    COMBINED_SCAN=true
+    # On a terminal, three layers of full-width section rules and path lines cost
+    # more rows than the findings do. Off a terminal (and under --full) keep the
+    # verbose form so logs stay self-describing.
+    if [[ "$(term_height)" -ne 0 ]]; then COMPACT=true; fi
+    ensure_tmpdir
+    POSTURE_STATS="${TMP_DIR}/posture.stats"
+    : > "$POSTURE_STATS"
+
     run_scan
 
     # Each optional layer runs in a subshell so its `exit 1` (stale lynis report,
     # unreachable OVAL feed) degrades to a warning instead of killing the whole
     # posture scan — and, worse, silently skipping the --min-score gate below.
     # Invoked directly (--scan-lynis / --scan-cve) they still hard-fail.
-    echo ""
+    # The subshell is also why the layers report through POSTURE_STATS (a file)
+    # rather than globals, which would not survive the subshell boundary.
+    log_gap
     if command -v lynis &>/dev/null; then
         ( run_scan_lynis ) || log_warn "Lynis layer failed — continuing (run --scan-lynis for details)."
     else
         log_warn "Lynis not installed — skipping audit layer (enable with --install-lynis)."
     fi
 
-    echo ""
+    log_gap
     if [[ "$PKG_MANAGER" == "dnf" || "$PKG_MANAGER" == "yum" || -n "$OVAL_URL" ]]; then
         ( run_scan_cve ) || log_warn "CVE layer failed — continuing (run --scan-cve for details)."
     else
         log_warn "No OVAL feed configured (scap.oval_url) — skipping CVE layer."
     fi
 
+    # The one screen the operator is left with. Off a terminal (pipe, redirect,
+    # CI, --full) rows=0 means "list every failing rule" — a log or a report must
+    # not silently lose findings just because they arrived via --scan.
+    local h rows=0
+    h=$(term_height)
+    if [[ "$h" -gt 0 ]]; then
+        rows=$(( h - 14 ))                   # the box itself costs ~14 rows
+        if [[ "$rows" -lt 2 ]]; then rows=2; fi
+    fi
+    local report; report=$(awk -F'=' '/^compliance_report=/{print $2}' "$POSTURE_STATS" 2>/dev/null || true)
+    print_posture_summary "$LAST_SCAN_ARF" "$report" "$rows"
+
     DEFER_MIN_SCORE=false
+    COMBINED_SCAN=false
+    COMPACT=false
     [[ -n "$LAST_SCAN_ARF" ]] && enforce_min_score "$LAST_SCAN_ARF" || true
 }
 
@@ -2181,6 +2474,7 @@ trap cleanup EXIT
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 main() {
+    detect_term_rows        # before anything runs inside $( ) — see the function
     banner
     parse_args "$@"
     check_root "$@"
