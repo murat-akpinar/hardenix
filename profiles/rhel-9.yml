@@ -30,6 +30,38 @@ backup:
     - /etc/cron.d
     - /etc/profile.d
     - /etc/selinux/config   # config only — never raw-restore the policy store
+    # Extended 2026-08-15: measured on a VM, CIS remediation wrote 58
+    # files outside the old list, so --unapply could not revert them.
+    - /etc/sudoers
+    - /etc/profile
+    - /etc/issue
+    - /etc/issue.net
+    - /etc/motd
+    - /etc/fstab
+    - /etc/crontab
+    - /etc/cron.hourly
+    - /etc/cron.daily
+    - /etc/cron.weekly
+    - /etc/cron.monthly
+    - /etc/cron.allow
+    - /etc/cron.deny
+    - /etc/at.allow
+    - /etc/at.deny
+    - /etc/hosts.allow
+    - /etc/hosts.deny
+    - /etc/systemd
+    - /etc/default
+    - /etc/rsyslog.conf
+    - /etc/rsyslog.d
+    - /etc/logrotate.conf
+    - /etc/logrotate.d
+    - /etc/aide.conf
+    - /etc/bashrc
+    - /etc/authselect
+    - /etc/crypto-policies
+    - /etc/firewalld
+    - /etc/krb5.conf.d
+    - /etc/chrony.conf
 
 exclusions:
   rules:

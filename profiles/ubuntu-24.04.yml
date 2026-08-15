@@ -66,6 +66,12 @@ backup:
     - /etc/hosts.deny
     # Mount options (nodev/nosuid/noexec)
     - /etc/fstab
+    # Extended 2026-08-15: measured on a VM, CIS remediation wrote 58
+    # files outside the old list, so --unapply could not revert them.
+    - /etc/profile
+    - /etc/aide.conf
+    - /etc/bash.bashrc
+    - /etc/ufw
 
 exclusions:
   rules:
