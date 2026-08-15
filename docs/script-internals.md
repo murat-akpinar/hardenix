@@ -333,6 +333,21 @@ the same `failed` list the listing below uses, which is why the ARF is parsed
 before anything prints. Its tail is truncated to `W - 23` columns so a four-digit
 count in every band cannot push the right border out of alignment.
 
+The box width `W` follows the terminal: `70` off a TTY, else
+`min(max(TERM_COLS - 10, 40), 110)`. 70 is the floor because 62 was measurably
+too narrow — a Rocky 9.8 baseline (193 failures, three-digit counts) clipped both
+the title and the severity tail. At 70 the whole box is `W + 8 = 78` columns and
+still lands inside an 80-column console; the 110 cap stops a very wide terminal
+from stretching the box past the point where the eye can track a row. Everything
+that draws — `row()`, `sep()`, the title, the rule-name clip, the report path —
+is already expressed in terms of `W`, so the width is the only knob.
+
+Multi-column listings were considered and rejected: rule names measure 28 median
+/ 41 p90 / 48 max characters, so three columns need ~145 columns of terminal to
+avoid truncation, and below that the names collapse into indistinguishable
+prefixes (`sshd_disable_…` alone matches five rules). The severity counts row
+carries the information a narrow box would otherwise have to spend rows on.
+
 `print_failing_rules()` and the two CVE summaries take a row budget; `0` means
 unlimited and keeps the original grouped-by-severity layout. With a budget they
 switch to a flat, severity-ordered list ending in `… +N more`, because the

@@ -91,6 +91,11 @@ run; `--min-score` gates the compliance score only.
 
 - **Dead-man switch** (`--deadman <min>` / `--confirm`) — auto-reverts unless you
   confirm you still have access. This is what makes hardening over SSH survivable.
+- **SSH lockout warning** — the baseline sets `PermitRootLogin no`, so hardening a
+  box you reached as root over SSH closes the door you came in through. `--apply`
+  and `--dry-run` say so by name before the prompt, and check whether any non-root
+  account with `sudo`/`wheel` **and** an SSH key would survive it. If none would,
+  they say the console is the only way back.
 - **Running-service protection** — detects active services (NFS/SMB,
   **Apache/nginx**) and offers to exclude the rules that would remove or disable them
 - **Read-only means read-only** — every scan mode and `--dry-run` write nothing
@@ -293,19 +298,19 @@ scrollback. It ends with a **single posture box** carrying all three layers plus
 the findings that matter:
 
 ```
-  ┌─ hardenix 1.4.2 · Ubuntu 24.04.4 LTS · CIS Level 1 (basic) ──────┐
-  │  Compliance   92.9 %    245 pass · 19 fail                       │
-  │  Failing      19        2 high · 12 medium · 5 low               │
-  │  Lynis        58/100    12 warnings · 41 suggestions             │
-  │  CVE          340       8 critical · 44 high · 92 advisories     │
-  ├──────────────────────────────────────────────────────────────────┤
-  │  HIGH    package_telnetd_removed                                 │
-  │  HIGH    sshd_disable_root_login                                 │
-  │  MEDIUM  mount_option_tmp_nodev                                  │
-  │  … +16 more failing rules                                        │
-  ├──────────────────────────────────────────────────────────────────┤
-  │  reports/scan_20260815_141230.html                               │
-  └──────────────────────────────────────────────────────────────────┘
+  ┌─ hardenix 1.5.0 · Ubuntu 24.04.4 LTS · CIS Level 1 (basic) ──────────────┐
+  │  Compliance   92.9 %    245 pass · 19 fail                               │
+  │  Failing      19        2 high · 12 medium · 5 low                       │
+  │  Lynis        58/100    12 warnings · 41 suggestions                     │
+  │  CVE          340       8 critical · 44 high · 92 advisories             │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │  HIGH    package_telnetd_removed                                         │
+  │  HIGH    sshd_disable_root_login                                         │
+  │  MEDIUM  mount_option_tmp_nodev                                          │
+  │  … +16 more failing rules                                                │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │  reports/scan_20260815_141230.html                                       │
+  └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 The **Failing** row breaks the fail count down by severity. It is what makes the

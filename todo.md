@@ -61,22 +61,7 @@ kısmı yapıldı. Kalan 5 madde hâlâ açık ve hepsi üretimde canını yakac
 - [ ] **`--unapply --from <timestamp>`.** Bugün yalnız `latest` symlink'i okunuyor
       (`latest_backup_dir()`); iki apply üst üste gelmişse ilkine dönmenin tek yolu
       elle symlink oynatmak.
-- [ ] **SSH lockout uyarısı.** `SSH_CONNECTION` script'te hiç geçmiyor. Uzak oturumdan
-      `--apply` çalıştıran biri sshd Ciphers/MACs/Kex/PermitRootLogin kurallarında ek
-      uyarı almıyor. Dead-man switch bunu kurtarıyor ama **yalnız `--deadman`
-      verildiyse**; uyarı ucuz sigorta.
-      **2026-08-15 canlı örnek — düzeltilmiş teşhis.** İlk okumam `MaxAuthTries 4`
-      + çok anahtarlı istemci yönündeydi; **yanlıştı**. Aynı gün ikinci turda
-      `-o IdentitiesOnly=yes -i <tek anahtar>` ile, yani deneme bütçesi hiç
-      tükenmeden, **iki kutu da** (Ubuntu 24.04 ve Rocky 9.8) `Permission denied
-      (publickey)` verdi. Sebep net: `sshd_disable_root_login` baseline'da fail
-      listesinde (`MEDIUM sshd_disable_root_login`), `--apply --level 1` onu
-      `PermitRootLogin no` yapıyor ve **root SSH tamamen kapanıyor**. Fark
-      önemli: MaxAuthTries istemci tarafında çözülebilir, PermitRootLogin
-      çözülemez — kutuya konsoldan ya da başka kullanıcıyla girmek gerekir.
-      İki kutuda da erişim ancak sweep'in `--unapply` adımından sonra döndü.
-      Uyarı bu kuralı **adıyla** söylemeli ve root dışında sudo'lu bir kullanıcı
-      olup olmadığını kontrol etmeli.
+- [x] **SSH lockout uyarısı.** ✅ v1.5.0 — `warn_ssh_lockout()` (arşiv).
 - [ ] **Pre-flight kontrolleri:** disk alanı (backup için), `/etc` yazılabilir mi, ağ
       var mı (unapply'ın paket reinstall'ı için). Şu an hepsi iş ortasında patlıyor —
       yarım uygulanmış hardening en kötü durum.
@@ -648,6 +633,66 @@ gerçek kutuda kontrol grubuyla ölçmek yakaladı.
 | kontrol grubu (12 sn boşta) | sıfır oynama |
 | kutu satır genişlikleri | hepsi **70 sütun** (4 haneli sayılarla da) |
 | kutu yüksekliği, `rows=9` | 20 satır — 24 satırlık konsola sığıyor |
+
+### SSH lockout uyarısı + terminale uyan kutu — v1.5.0 ✅ (2026-08-15)
+
+**SSH lockout uyarısı (P0 maddesi kapandı).** `warn_ssh_lockout()`, `--apply` ve
+`--dry-run` yollarında prompt'tan **önce** çalışıyor. Sadece SSH oturumundaysa
+konuşuyor, kural profilde hariç tutulmuşsa susuyor, `sshd -T` ile **etkin**
+`PermitRootLogin` değerini okuyup zaten `no` ise susuyor. Geri dönüş yolu
+kontrolü: uid ≥ 1000, `sudo`/`wheel` üyesi **ve** dolu `authorized_keys` olan
+kullanıcı arıyor; yoksa "konsol tek yol" diyor. Yeni prompt eklenmedi — mevcut
+`Continue?` kapı olarak kaldı, yani `--yes` invaryantı bozulmadı.
+
+Canlı `--apply` çıktısı (Ubuntu 24.04.4):
+
+```
+[!] This session is over SSH, and the baseline disables root SSH login.
+    Rule sshd_disable_root_login sets PermitRootLogin no (currently: yes).
+    This login will stop working after the apply.
+[✗] No account survives this: no non-root user has both sudo and an SSH key.
+    The console will be the only way back into this machine.
+[✓] Dead-man switch armed for 60 min — it reverts unless --confirm arrives.
+```
+
+Admin grubunu distroya göre ayırıyor: Ubuntu'da `sudo`, Rocky'de `wheel`.
+
+**Kutu genişliği artık terminale uyuyor.** Sabit 62 gerçek veride yetmiyordu:
+Rocky 9.8 baseline'ı (193 fail, üç haneli sayılar) hem başlığı hem severity
+kuyruğunu kırpıyordu (`4 unkno…`). `TERM_COLS` tespiti `detect_term_rows()`'a
+eklendi (yine `main()`'den bir kez — `$( )` tuzağı). `W`: TTY yoksa 70, varsa
+`min(max(cols-10, 40), 110)`.
+
+| pty | TERM_COLS | W | kutu | sığdı mı |
+|---|---|---|---|---|
+| 80×24 | 80 | 70 | 78 | ✓ |
+| 120×40 | 120 | 110 | 118 | ✓ (canlı `--scan` ile doğrulandı) |
+| 200×50 | 200 | 110 (tavan) | 118 | ✓ |
+| boru / CI | 0 | 70 | 78 | ✓ |
+
+**Çoklu sütun reddedildi.** Ölçüm: kural adları medyan 28 / p90 41 / max 48
+karakter. Üç sütun kesme olmadan ~145 sütunluk terminal ister; altında isimler
+ayırt edilemez öneklere çöküyor — `sshd_disable_…` tek başına beş kuralla
+eşleşiyor, `accounts_password…` ise onlarcasıyla. Kazanılacak şey de çoğunlukla
+MEDIUM isimleri (Rocky'de 193 fail'in 169'u), yani karar verilmeyen veri.
+Severity sayım satırı bu bilgiyi zaten tek satırda veriyor. Gerekçe
+`docs/script-internals.md`'ye yazıldı ki tekrar açılmasın.
+
+**Doğrulama — Ubuntu 24.04.4, tam yaşam döngüsü 8/8 rc=0:**
+
+| Adım | Sonuç |
+|---|---|
+| `--apply --level 1 --deadman 60` | rc=0, 6 dk · `PermitRootLogin` yes → **no** |
+| dead-man timer | kuruldu (1) → `--confirm` sonrası **0** |
+| ikinci `--confirm` | "No pending dead-man switch found" |
+| apply sonrası tarama | %88.2 — 337 pass / 45 fail · Lynis 68/100 |
+| `--unapply` | rc=0 · `PermitRootLogin` **yes**'e geri döndü |
+| unapply sonrası tarama | %67.3 — 259 pass / 126 fail |
+| `--fix-cve` | 97 güvenlik güncellemesi kuruldu, rc=0 |
+| `--scan-cve` (sonra) | **0 CVE** |
+
+`PermitRootLogin` yes → no → yes zinciri hem lockout teşhisinin hem de
+`--unapply`'ın tam geri döndürdüğünün doğrudan kanıtı.
 
 ### Bulgular (kalıcı, davranışı etkiler)
 

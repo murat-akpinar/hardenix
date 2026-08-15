@@ -92,6 +92,11 @@ biter. Eksik bir motor çalıştırmayı hataya düşürmek yerine uyarıyla atl
 - **Dead-man switch** (`--deadman <dk>` / `--confirm`) — erişiminin sürdüğünü
   onaylamazsan otomatik geri alır. SSH üzerinden sıkılaştırmayı hayatta kalınabilir
   kılan şey budur.
+- **SSH lockout uyarısı** — baseline `PermitRootLogin no` yapıyor; yani SSH'tan root
+  olarak girdiğin kutuyu sıkılaştırmak, girdiğin kapıyı kapatıyor. `--apply` ve
+  `--dry-run` bunu prompt'tan önce **kuralın adıyla** söylüyor ve `sudo`/`wheel`
+  üyesi **ve** SSH anahtarı olan root dışı bir hesap kalıyor mu diye bakıyor.
+  Kalmıyorsa geriye tek yolun konsol olduğunu açıkça yazıyor.
 - **Çalışan servis koruması** — aktif servisleri (NFS/SMB, **Apache/nginx**) tespit
   edip onları kaldıracak veya durduracak kuralları hariç tutmayı önerir
 - **Salt-okunur gerçekten salt-okunurdur** — tüm tarama modları ve `--dry-run`
@@ -290,19 +295,19 @@ istediğinde bunlara başvur.
 yok. Çıktı **tek bir duruş kutusuyla** biter — üç katman ve önemli bulgular:
 
 ```
-  ┌─ hardenix 1.4.2 · Ubuntu 24.04.4 LTS · CIS Level 1 (basic) ──────┐
-  │  Compliance   92.9 %    245 pass · 19 fail                       │
-  │  Failing      19        2 high · 12 medium · 5 low               │
-  │  Lynis        58/100    12 warnings · 41 suggestions             │
-  │  CVE          340       8 critical · 44 high · 92 advisories     │
-  ├──────────────────────────────────────────────────────────────────┤
-  │  HIGH    package_telnetd_removed                                 │
-  │  HIGH    sshd_disable_root_login                                 │
-  │  MEDIUM  mount_option_tmp_nodev                                  │
-  │  … +16 more failing rules                                        │
-  ├──────────────────────────────────────────────────────────────────┤
-  │  reports/scan_20260815_141230.html                               │
-  └──────────────────────────────────────────────────────────────────┘
+  ┌─ hardenix 1.5.0 · Ubuntu 24.04.4 LTS · CIS Level 1 (basic) ──────────────┐
+  │  Compliance   92.9 %    245 pass · 19 fail                               │
+  │  Failing      19        2 high · 12 medium · 5 low                       │
+  │  Lynis        58/100    12 warnings · 41 suggestions                     │
+  │  CVE          340       8 critical · 44 high · 92 advisories             │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │  HIGH    package_telnetd_removed                                         │
+  │  HIGH    sshd_disable_root_login                                         │
+  │  MEDIUM  mount_option_tmp_nodev                                          │
+  │  … +16 more failing rules                                                │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │  reports/scan_20260815_141230.html                                       │
+  └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Failing** satırı fail sayısını severity'ye göre ayırır. Kırpılmış listeyi

@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly SCRIPT_VERSION="1.4.2"
+readonly SCRIPT_VERSION="1.5.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly BACKUP_BASE="/var/lib/linuxharden"
@@ -27,6 +27,7 @@ DEFER_MIN_SCORE=false   # true during --scan (combined): gate runs after all lay
 LAST_SCAN_ARF=""        # set by run_scan; consumed by run_scan_full's final gate
 FULL_OUTPUT=false       # --full: never trim listings to the terminal height
 TERM_ROWS=0             # set once by detect_term_rows(); 0 = not a TTY, never trim
+TERM_COLS=0             # ditto for width; 0 = not a TTY, posture box uses its default
 COMBINED_SCAN=false     # true during --scan: layers feed one posture box instead
                         # of each printing its own summary
 COMPACT=false           # true during --scan on a terminal: one-line sections,
@@ -118,12 +119,16 @@ ensure_tmpdir() {
 # stdout a pipe, so `-t 1` there is always false and every listing would look
 # unbounded. That is exactly how the first version of this silently did nothing.
 detect_term_rows() {
-    if [[ ! -t 1 ]]; then TERM_ROWS=0; return 0; fi
-    local h=""
+    if [[ ! -t 1 ]]; then TERM_ROWS=0; TERM_COLS=0; return 0; fi
+    local h="" w=""
     h=$(tput lines 2>/dev/null || true)
     [[ "$h" =~ ^[0-9]+$ ]] || h=$(stty size 2>/dev/null | awk '{print $1}' || true)
     [[ "$h" =~ ^[0-9]+$ ]] || h=24
     TERM_ROWS="$h"
+    w=$(tput cols 2>/dev/null || true)
+    [[ "$w" =~ ^[0-9]+$ ]] || w=$(stty size 2>/dev/null | awk '{print $2}' || true)
+    [[ "$w" =~ ^[0-9]+$ ]] || w=80
+    TERM_COLS="$w"
 }
 
 term_height() {
@@ -708,6 +713,54 @@ detect_active_services() {
     fi
 }
 
+# Applying a CIS baseline over SSH closes the door you came in through: the
+# baseline sets PermitRootLogin to no. Nothing here blocks that — disabling
+# direct root login is the point of the tool, not a defect — but the operator
+# has to be told by name, before the prompt, and told whether any way back in
+# survives it. Measured 2026-08-15: --apply --level 1 locked root out of both
+# test boxes; recovery needed the console.
+# Prints only; the existing "Continue?" in run_apply() is the gate, so --yes
+# still goes through untouched.
+warn_ssh_lockout() {
+    [[ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}${SSH_TTY:-}" ]] || return 0
+    [[ "$EXCLUSION_RULES" != *sshd_disable_root_login* ]] || return 0
+
+    # sshd -T is the effective config; if root login is already off we did not
+    # get here as root over SSH and there is nothing to lose.
+    local cur=""
+    cur=$(sshd -T 2>/dev/null | awk '/^permitrootlogin/{print $2; exit}' || true)
+    [[ -z "$cur" ]] && cur=$(awk '/^[[:space:]]*PermitRootLogin/{print $2; exit}' /etc/ssh/sshd_config 2>/dev/null || true)
+    [[ "$cur" == "no" ]] && return 0
+
+    # A usable way back in = a non-root account with an admin group AND a key.
+    local admin_group="wheel"
+    getent group sudo >/dev/null 2>&1 && admin_group="sudo"
+    local admins=() u uid home
+    while IFS=: read -r u _ uid _ _ home _; do
+        [[ "$uid" =~ ^[0-9]+$ ]] || continue
+        [[ "$uid" -ge 1000 && "$uid" -lt 65534 ]] || continue
+        id -nG "$u" 2>/dev/null | tr ' ' '\n' | grep -qx "$admin_group" || continue
+        [[ -s "${home}/.ssh/authorized_keys" ]] || continue
+        admins+=("$u")
+    done < <(getent passwd)
+
+    echo ""
+    log_warn "This session is over SSH, and the baseline disables root SSH login."
+    echo -e "  Rule ${BOLD}sshd_disable_root_login${NC} sets ${BOLD}PermitRootLogin no${NC} (currently: ${BOLD}${cur:-unset}${NC})."
+    echo -e "  ${BOLD}This login will stop working after the apply.${NC}"
+    if [[ ${#admins[@]} -gt 0 ]]; then
+        echo -e "  Still able to log in: ${BOLD}${admins[*]}${NC} (${admin_group} + SSH key)"
+    else
+        log_error "No account survives this: no non-root user has both ${admin_group} and an SSH key."
+        echo -e "  ${BOLD}The console will be the only way back into this machine.${NC}"
+    fi
+    if [[ -z "$DEADMAN_MIN" ]]; then
+        echo -e "  Safety net: re-run with ${BOLD}--deadman 15${NC} to auto-revert unless you confirm."
+    else
+        log_info "Dead-man switch armed for ${DEADMAN_MIN} min — it reverts unless --confirm arrives."
+    fi
+}
+
 # ── Profile Validation ────────────────────────────────────────────────────────
 
 # Is PROFILE_ID really present in the datastream? A wrong profile id in the .yml
@@ -1232,16 +1285,26 @@ print_posture_summary() {
     command -v python3 &>/dev/null || return 0
 
     python3 - "$POSTURE_STATS" "$arf" "$report" "$rows" \
-              "$SCRIPT_VERSION" "$DISTRO_PRETTY" "$SEC_LEVEL_LABEL" <<'PYEOF'
+              "$SCRIPT_VERSION" "$DISTRO_PRETTY" "$SEC_LEVEL_LABEL" "$TERM_COLS" <<'PYEOF'
 import sys, os, re
 import xml.etree.ElementTree as ET
 
-stats_f, arf, report, rows, ver, distro, level = sys.argv[1:8]
+stats_f, arf, report, rows, ver, distro, level, cols = sys.argv[1:9]
 rows = int(rows)
 
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; B='\033[1m'; NC='\033[0m'
 ANSI = re.compile(r'\033\[[0-9;]*m')
-W = 62
+
+# Box width. 62 was too narrow for real data: a Rocky 9.8 baseline clipped both
+# the title and the severity tail ("… 4 unkno…") because 193 failures make the
+# counts three digits wide. 70 is the floor that fits the widest realistic title
+# and counts row while the whole box (W+8) still lands inside 80 columns. On a
+# wider terminal take the room, capped at 110 — past that the eye has to travel
+# further than the content is worth. Off a TTY there is no width to measure, so
+# use the floor and keep logs and reports a stable shape.
+try:    cols = int(cols)
+except ValueError: cols = 0
+W = 70 if cols <= 0 else min(max(cols - 10, 40), 110)
 def vlen(s): return len(ANSI.sub('', s))
 def row(s):  return f"  │  {s}{' ' * max(0, W - vlen(s))}  │"
 def sep():   return "  ├" + "─" * (W + 4) + "┤"
@@ -2191,6 +2254,8 @@ run_apply() {
             log_warn "Dry-run scan produced no output — check oscap manually."
         fi
 
+        # The preview is exactly where a lockout should be previewed.
+        warn_ssh_lockout
         echo ""
         log_info "Run without --dry-run to apply the above fixes."
         return
@@ -2199,6 +2264,8 @@ run_apply() {
     log_section "Applying Hardening"
     echo -e "  ${YELLOW}${BOLD}WARNING:${NC} System configuration will be modified."
     echo -e "  Backup → ${BOLD}${BACKUP_BASE}/${NC}"
+    warn_ssh_lockout
+    echo ""
     confirm "Continue?" || { log_warn "Aborted."; exit 0; }
 
     run_hook "$HOOK_PRE" "pre_hardening"
