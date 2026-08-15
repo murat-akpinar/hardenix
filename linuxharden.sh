@@ -2,11 +2,13 @@
 
 set -euo pipefail
 
-readonly SCRIPT_VERSION="1.2.0"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_VERSION="1.2.1"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
 readonly BACKUP_BASE="/var/lib/linuxharden"
-readonly REPORT_DIR="$(pwd)/reports"
-readonly TMP_DIR="/tmp/linuxharden_$$"
+REPORT_DIR="$(pwd)/reports"
+readonly REPORT_DIR
+TMP_DIR=""              # created on demand by ensure_tmpdir(); removed by the EXIT trap
 readonly STATE_FILE="/var/lib/linuxharden/applied_level"   # records the applied hardening level
 readonly LYNIS_REPORT_DAT="/var/log/lynis-report.dat"   # written by `lynis audit system`
 
@@ -69,6 +71,14 @@ log_section() {
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
+# Create the private scratch dir on first use. The old fixed /tmp/linuxharden_$$
+# was guessable and this script runs as root — a symlink pre-planted there would
+# have redirected root's writes. mktemp -d gives an unpredictable 0700 dir.
+ensure_tmpdir() {
+    [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && return 0
+    TMP_DIR=$(mktemp -d "/tmp/linuxharden.XXXXXXXX")
+}
+
 banner() {
     echo -e "${CYAN}${BOLD}"
     echo "  ██╗  ██╗ █████╗ ██████╗ ██████╗ ███████╗███╗   ██╗██╗██╗  ██╗"
@@ -124,7 +134,9 @@ usage() {
     echo "  sudo $(basename "$0") --apply --level 2     # CIS Level 2 (strict)"
     echo "  sudo $(basename "$0") --unapply"
     echo "  sudo $(basename "$0") --uninstall"
-    exit 0
+    # Usage on request exits 0; usage after a usage *error* must exit non-zero,
+    # otherwise a typo'd flag looks like a successful run to CI.
+    exit "${1:-0}"
 }
 
 # Prompt for confirmation unless --yes was given. Returns 0 to proceed.
@@ -142,38 +154,59 @@ confirm() {
 
 # ── Argument Parsing ──────────────────────────────────────────────────────────
 
+# Reject a second, conflicting mode. `--scan --apply` used to silently win with
+# the last flag on the line — a typo away from mutating a system the operator
+# only meant to scan.
+set_mode() {
+    if [[ -n "$MODE" && "$MODE" != "$1" ]]; then
+        log_error "Conflicting modes: --${MODE//_/-} and --${1//_/-} — pick one."
+        exit 1
+    fi
+    MODE="$1"
+}
+
+# Guard a value-taking option. Without this a trailing `--level` makes the loop's
+# `shift` run past the end, which under `set -e` kills the script with no message.
+require_val() {
+    if [[ -z "${2:-}" || "${2:-}" == --* ]]; then
+        log_error "Option $1 requires a value."
+        exit 1
+    fi
+}
+
 parse_args() {
-    if [[ $# -eq 0 ]]; then usage; fi
+    # No arguments is the same error as "no mode specified" — print help, exit 1.
+    if [[ $# -eq 0 ]]; then usage 1; fi
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --scan)      MODE="scan" ;;
-            --scan-compliance)  MODE="scan_compliance" ;;
-            --scan-cve)  MODE="scan_cve" ;;
-            --scan-lynis)       MODE="scan_lynis" ;;
-            --fix-cve)   MODE="fix_cve" ;;
-            --install)   MODE="install" ;;
-            --install-openscap) MODE="install_openscap" ;;
-            --install-lynis)    MODE="install_lynis" ;;
-            --uninstall) MODE="uninstall" ;;
-            --apply)     MODE="apply" ;;
-            --unapply)   MODE="unapply" ;;
+            --scan)      set_mode "scan" ;;
+            --scan-compliance)  set_mode "scan_compliance" ;;
+            --scan-cve)  set_mode "scan_cve" ;;
+            --scan-lynis)       set_mode "scan_lynis" ;;
+            --fix-cve)   set_mode "fix_cve" ;;
+            --install)   set_mode "install" ;;
+            --install-openscap) set_mode "install_openscap" ;;
+            --install-lynis)    set_mode "install_lynis" ;;
+            --uninstall) set_mode "uninstall" ;;
+            --apply)     set_mode "apply" ;;
+            --unapply)   set_mode "unapply" ;;
             --dry-run)   DRY_RUN=true ;;
-            --confirm)   MODE="confirm" ;;
-            --deadman)   shift; DEADMAN_MIN="${1:-}" ;;
+            --confirm)   set_mode "confirm" ;;
+            --deadman)   require_val "$1" "${2:-}"; DEADMAN_MIN="$2"; shift ;;
             --yes|--non-interactive) ASSUME_YES=true ;;
-            --min-score) shift; MIN_SCORE="${1:-}" ;;
-            --level)     shift; SEC_LEVEL="${1:-}" ;;
-            --format)    shift; REPORT_FORMAT="${1:-html}" ;;
-            --conf)      shift; LOCAL_CONF="${1:-}" ;;
+            --min-score) require_val "$1" "${2:-}"; MIN_SCORE="$2"; shift ;;
+            --level)     require_val "$1" "${2:-}"; SEC_LEVEL="$2"; shift ;;
+            --format)    require_val "$1" "${2:-}"; REPORT_FORMAT="$2"; shift ;;
+            --conf)      require_val "$1" "${2:-}"; LOCAL_CONF="$2"; shift ;;
             --help|-h)   usage ;;
-            *) log_error "Unknown option: $1"; echo ""; usage ;;
+            *) log_error "Unknown option: $1"; echo ""; usage 1 ;;
         esac
         shift
     done
 
     if [[ "$DRY_RUN" == true && -z "$MODE" ]]; then MODE="apply"; fi
-    if [[ -z "$MODE" ]]; then log_error "No mode specified."; echo ""; usage; fi
+    if [[ -z "$MODE" ]]; then log_error "No mode specified."; echo ""; usage 1; fi
 
     case "$REPORT_FORMAT" in
         html|json|both) ;;
@@ -259,9 +292,14 @@ download_conf() {
         return
     fi
 
+    # Rolling releases (Arch) ship no VERSION_ID, so DISTRO_VERSION falls back to
+    # the literal "rolling" and the two versioned candidates both resolve to
+    # <id>-rolling.yml — which no profile is named. The bare <id>.yml is what
+    # makes profiles/arch.yml reachable at all.
     local candidates=(
         "${DISTRO_ID}-${DISTRO_VERSION}.yml"
         "${DISTRO_ID}-${DISTRO_VERSION_MAJOR}.yml"
+        "${DISTRO_ID}.yml"
     )
 
     for conf_name in "${candidates[@]}"; do
@@ -299,7 +337,7 @@ check_pyyaml() {
 # ── .yml Parser ───────────────────────────────────────────────────────────────
 
 parse_conf() {
-    mkdir -p "$TMP_DIR"
+    ensure_tmpdir
     local py_script="${TMP_DIR}/parse_conf.py"
 
     cat > "$py_script" << 'PYEOF'
@@ -513,14 +551,15 @@ detect_active_services() {
 
 # ── Profile Validation ────────────────────────────────────────────────────────
 
-# Datastream içinde PROFILE_ID gerçekten var mı? yml'deki profil id'si yanlışsa
-# oscap boş sonuç üretir ve script yanıltıcı bir %0.0 raporlar — erkenden yakala.
+# Is PROFILE_ID really present in the datastream? A wrong profile id in the .yml
+# makes oscap produce an empty result and the script reports a misleading 0.0% —
+# catch it early.
 validate_profile() {
     [[ ! -f "$XML_PATH" ]] && return 0
 
     local profiles
     profiles=$(oscap info --profiles "$XML_PATH" 2>/dev/null | cut -d: -f1)
-    [[ -z "$profiles" ]] && return 0  # oscap info desteklemiyorsa atla
+    [[ -z "$profiles" ]] && return 0  # skip when oscap info doesn't support it
 
     if ! grep -qxF "$PROFILE_ID" <<<"$profiles"; then
         log_error "Profile not found in datastream: $PROFILE_ID"
@@ -555,8 +594,8 @@ setup_tailoring() {
     fi
 
     local tailored_id="xccdf_linuxharden.custom_profile_tailored"
+    ensure_tmpdir
     local tfile="${TMP_DIR}/tailoring.xml"
-    mkdir -p "$TMP_DIR"
 
     python3 - "$XML_PATH" "$PROFILE_ID" "$EXCLUSION_RULES" "$tfile" "$tailored_id" <<'PYEOF' && {
 import sys
@@ -705,7 +744,7 @@ pkg_install() {
 # ── Backup ────────────────────────────────────────────────────────────────────
 
 create_backup() {
-    local backup_dir="${BACKUP_BASE}/$(date +%Y%m%d_%H%M%S)"
+    local backup_dir; backup_dir="${BACKUP_BASE}/$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$backup_dir"
 
     local dirs_to_backup=()
@@ -723,10 +762,43 @@ create_backup() {
         [[ "$skip" == false && -e "$d" ]] && existing+=("$d")
     done
 
+    # The archive is not just a convenience: revert_hardening() DELETES files that
+    # exist now but are absent from it. A silently partial archive therefore turns
+    # --unapply into a config shredder, so verify it here — before anything on the
+    # system has changed — and refuse to go on if it is not sound.
     if [[ ${#existing[@]} -gt 0 ]]; then
-        tar czf "${backup_dir}/configs.tar.gz" "${existing[@]}" 2>/dev/null \
-            && log_info "Config files archived (${#existing[@]} dirs)" >&2 \
-            || log_warn "Some files could not be archived" >&2
+        local tar_rc=0
+        tar czf "${backup_dir}/configs.tar.gz" "${existing[@]}" \
+            2>"${backup_dir}/tar.err" || tar_rc=$?
+        # GNU tar: 1 = "file changed as we read it" (benign on a live box), 2 = fatal.
+        if [[ $tar_rc -ge 2 ]]; then
+            log_error "Config backup failed (tar exit ${tar_rc})." >&2
+            sed 's/^/    /' "${backup_dir}/tar.err" >&2
+            return 1
+        fi
+        if ! tar tzf "${backup_dir}/configs.tar.gz" >"${backup_dir}/tar.list" 2>/dev/null; then
+            log_error "Config archive is unreadable — refusing to continue." >&2
+            return 1
+        fi
+        # Every path we meant to archive must actually be in it; a missing one is
+        # exactly the case that would delete live config on --unapply.
+        local missing=() d pat
+        for d in "${existing[@]}"; do
+            pat="${d#/}"; pat="${pat//./\\.}"     # /etc/sysctl.conf → literal dots
+            grep -qE "^${pat}(/|\$)" "${backup_dir}/tar.list" || missing+=("$d")
+        done
+        if [[ ${#missing[@]} -gt 0 ]]; then
+            log_error "Backup is incomplete — these paths are missing from the archive:" >&2
+            printf '    • %s\n' "${missing[@]}" >&2
+            return 1
+        fi
+        rm -f "${backup_dir}/tar.list"
+        if [[ $tar_rc -eq 1 ]]; then
+            log_warn "tar reported changed files during backup (see ${backup_dir}/tar.err)" >&2
+        else
+            rm -f "${backup_dir}/tar.err"
+        fi
+        log_info "Config files archived and verified (${#existing[@]} paths)" >&2
     fi
 
     # Exclude specified services from saved state
@@ -963,8 +1035,10 @@ install_ssg_from_github() {
     log_info "Downloading SSG v${ssg_ver}..."
 
     local zip_url="https://github.com/ComplianceAsCode/content/releases/download/v${ssg_ver}/scap-security-guide-${ssg_ver}.zip"
-    local tmp_zip; tmp_zip="/tmp/ssg_$$.zip"
-    local tmp_dir; tmp_dir="/tmp/ssg_extract_$$"
+    # mktemp, not /tmp/ssg_$$: the PID-based name was guessable and we run as root.
+    local work; work=$(mktemp -d "/tmp/hardenix-ssg.XXXXXXXX")
+    local tmp_zip="${work}/ssg.zip"
+    local tmp_dir="${work}/extract"
 
     local downloaded=false
     if command -v wget &>/dev/null; then
@@ -973,32 +1047,33 @@ install_ssg_from_github() {
         if curl -L --progress-bar "$zip_url" -o "$tmp_zip"; then downloaded=true; fi
     else
         log_error "wget or curl is required to download SSG content."
+        rm -rf "$work"
         exit 1
     fi
 
     if [[ "$downloaded" != true ]]; then
         log_error "Download failed. Install manually from:"
         echo "  https://github.com/ComplianceAsCode/content/releases"
-        rm -f "$tmp_zip"
+        rm -rf "$work"
         exit 1
     fi
 
     log_info "Extracting..."
     mkdir -p "$tmp_dir"
     python3 -m zipfile -e "$tmp_zip" "$tmp_dir" 2>/dev/null \
-        || { log_error "Failed to extract archive."; rm -rf "$tmp_zip" "$tmp_dir"; exit 1; }
+        || { log_error "Failed to extract archive."; rm -rf "$work"; exit 1; }
 
     local xml_src="${tmp_dir}/scap-security-guide-${ssg_ver}/${xml_filename}"
     if [[ ! -f "$xml_src" ]]; then
         log_error "Expected file not in archive: ${xml_filename}"
         log_warn "This distro may not be supported in SSG v${ssg_ver} yet."
-        rm -rf "$tmp_zip" "$tmp_dir"
+        rm -rf "$work"
         exit 1
     fi
 
     mkdir -p "$dest_dir"
     cp "$xml_src" "$dest_dir/"
-    rm -rf "$tmp_zip" "$tmp_dir"
+    rm -rf "$work"
     log_info "SCAP content installed: ${dest_dir}/${xml_filename}"
 }
 
@@ -1408,7 +1483,7 @@ scan_cve_oval() {
 
     mkdir -p "$REPORT_DIR"
     local ts; ts=$(date +%Y%m%d_%H%M%S)
-    local feed="${REPORT_DIR}/oval-feed/$(basename "${OVAL_URL%.bz2}")"
+    local feed; feed="${REPORT_DIR}/oval-feed/$(basename "${OVAL_URL%.bz2}")"
     feed="${feed%.gz}"
 
     log_info "Feed URL : $OVAL_URL"
@@ -1522,16 +1597,20 @@ run_scan_full() {
     DEFER_MIN_SCORE=true
     run_scan
 
+    # Each optional layer runs in a subshell so its `exit 1` (stale lynis report,
+    # unreachable OVAL feed) degrades to a warning instead of killing the whole
+    # posture scan — and, worse, silently skipping the --min-score gate below.
+    # Invoked directly (--scan-lynis / --scan-cve) they still hard-fail.
     echo ""
     if command -v lynis &>/dev/null; then
-        run_scan_lynis
+        ( run_scan_lynis ) || log_warn "Lynis layer failed — continuing (run --scan-lynis for details)."
     else
         log_warn "Lynis not installed — skipping audit layer (enable with --install-lynis)."
     fi
 
     echo ""
     if [[ "$PKG_MANAGER" == "dnf" || "$PKG_MANAGER" == "yum" || -n "$OVAL_URL" ]]; then
-        run_scan_cve
+        ( run_scan_cve ) || log_warn "CVE layer failed — continuing (run --scan-cve for details)."
     else
         log_warn "No OVAL feed configured (scap.oval_url) — skipping CVE layer."
     fi
@@ -1652,7 +1731,13 @@ run_apply() {
     run_hook "$HOOK_PRE" "pre_hardening"
 
     mkdir -p "$BACKUP_BASE"
-    local backup_dir; backup_dir=$(create_backup)
+    # Backup → apply → verify: no verified backup, no apply. Bailing out here is
+    # the only point where the system is still untouched.
+    local backup_dir
+    if ! backup_dir=$(create_backup); then
+        log_error "Backup failed — hardening aborted, the system is unchanged."
+        exit 1
+    fi
 
     # Baseline score before remediation
     echo ""
@@ -1706,7 +1791,13 @@ run_apply() {
     log_warn "A reboot may be required for some changes to take effect."
     echo -e "  To revert: ${BOLD}sudo $(basename "$0") --unapply${NC}"
 
-    [[ -n "$DEADMAN_MIN" ]] && arm_deadman "$DEADMAN_MIN"
+    # NOT `[[ ... ]] && arm_deadman`: as the last statement of the function a
+    # false test makes run_apply — and therefore the whole script — return 1,
+    # so a successful apply without --deadman reported failure to CI.
+    if [[ -n "$DEADMAN_MIN" ]]; then
+        arm_deadman "$DEADMAN_MIN"
+    fi
+    return 0
 }
 
 # ── Dead-man Switch ─────────────────────────────────────────────────────────────
@@ -1866,8 +1957,10 @@ revert_hardening() {
         log_info "Service states restored"
     fi
 
-    # Reload system
-    sysctl --system 2>/dev/null | grep -c 'Applying' | xargs -I{} log_info "sysctl: {} settings reloaded" || true
+    # Reload system. (xargs cannot invoke a shell function — the previous
+    # `| xargs -I{} log_info` only ever printed an xargs error to stderr.)
+    local reloaded; reloaded=$(sysctl --system 2>/dev/null | grep -c 'Applying' || true)
+    log_info "sysctl: ${reloaded:-0} settings reloaded"
     systemctl daemon-reload 2>/dev/null && log_info "systemd daemon reloaded" || true
 
     for svc in sshd ssh auditd; do
@@ -2025,7 +2118,12 @@ arch_basic_check() {
 arch_basic_harden() {
     log_section "Basic Hardening (Arch)"
 
-    local backup_dir; backup_dir=$(create_backup)
+    mkdir -p "$BACKUP_BASE"
+    local backup_dir
+    if ! backup_dir=$(create_backup); then
+        log_error "Backup failed — hardening aborted, the system is unchanged."
+        exit 1
+    fi
 
     cat > /etc/sysctl.d/99-linuxharden.conf <<'EOF'
 net.ipv4.ip_forward = 0
@@ -2057,9 +2155,18 @@ EOF
         log_info "sshd_config hardened"
     fi
 
-    echo "* hard core 0" >> /etc/security/limits.conf
-    echo "* soft core 0" >> /etc/security/limits.conf
-    log_info "Core dumps disabled"
+    # Idempotent: this used to append two lines on every run, so limits.conf grew
+    # a duplicate pair per apply.
+    if grep -qE '^\*[[:space:]]+hard[[:space:]]+core[[:space:]]+0' /etc/security/limits.conf 2>/dev/null; then
+        log_info "Core dumps already disabled"
+    else
+        printf '* hard core 0\n* soft core 0\n' >> /etc/security/limits.conf
+        log_info "Core dumps disabled"
+    fi
+
+    # Same contract as run_apply(): record the applied state so the banner and the
+    # web UI see a hardened box instead of "None".
+    echo "Arch basic hardening" > "$STATE_FILE" 2>/dev/null || true
 
     log_info "Backup at: $backup_dir"
     log_warn "Review changes and reboot."

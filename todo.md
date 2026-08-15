@@ -49,9 +49,13 @@ kısmı yapıldı. Kalan 5 madde hâlâ açık ve hepsi üretimde canını yakac
 - [ ] **Backup rotasyonu — `--keep N` (varsayılan 5).** `create_backup()` her apply'da
       `/var/lib/linuxharden/<ts>/` altına yeni `configs.tar.gz` yazıyor, hiçbiri
       silinmiyor. `/etc` tarball'ı × sınırsız apply = disk dolar.
-- [ ] **Backup bütünlük doğrulaması.** Apply *öncesi* `tar tzf` ile arşivi test et;
-      bozuksa dur. Şu an bozuk yedek ancak `--unapply` anında — yani geri dönüşün
-      gerektiği anda — fark ediliyor.
+- [x] **Backup bütünlük doğrulaması.** ✅ v1.2.1. `create_backup()` artık `tar` çıkışını
+      ayırt ediyor (≥2 = ölümcül, 1 = "dosya değişti" uyarısı), arşivi `tar tzf` ile
+      geri okuyor ve **arşivlemeyi hedeflediği her yolun listede olduğunu** doğruluyor;
+      üçü de başarısızsa `run_apply()` sistem daha hiç değişmeden duruyor.
+      Düşünüldüğünden ağırdı: `revert_hardening()` arşivde **olmayan** dosyaları
+      siliyor, yani sessizce eksik bir arşiv `--unapply`'ı config öğütücüsüne
+      çeviriyordu.
 - [ ] **`--unapply --from <timestamp>`.** Bugün yalnız `latest` symlink'i okunuyor
       (`latest_backup_dir()`); iki apply üst üste gelmişse ilkine dönmenin tek yolu
       elle symlink oynatmak.
@@ -62,6 +66,11 @@ kısmı yapıldı. Kalan 5 madde hâlâ açık ve hepsi üretimde canını yakac
 - [ ] **Pre-flight kontrolleri:** disk alanı (backup için), `/etc` yazılabilir mi, ağ
       var mı (unapply'ın paket reinstall'ı için). Şu an hepsi iş ortasında patlıyor —
       yarım uygulanmış hardening en kötü durum.
+      **Paket yöneticisi kilidi de buraya:** 2026-08-15 testinde 151'de
+      `unattended-upgrades` dpkg kilidini tutuyordu; `--install` ham bir
+      `E: Could not get lock /var/lib/dpkg/lock-frontend` ile düştü — hardenix
+      seviyesinde tek satır mesaj yok. `fuser /var/lib/dpkg/lock-frontend` /
+      `dnf` `/var/run/dnf.pid` kontrolü + anlaşılır hata.
 
 **Test geçidi:** rotasyon eski backup'ları buduyor · bozuk tarball apply'ı durduruyor ·
 `--from` doğru backup'ı seçiyor · uzak oturumda lockout uyarısı çıkıyor · disksiz/
@@ -127,9 +136,9 @@ oscap'sız ortamda temiz hata. → `v1.3.0`
       container'da koşar → 9 profilin çoğu insansız doğrulanır.
 - [ ] **`tmp/*.sh` temizliği** — eski `oscap generate fix` müsveddeleri; sil veya
       `examples/legacy/`'ye taşı.
-- [ ] **Bilinen kozmetik hata:** `revert_hardening()`'de `xargs -I{} log_info` shell
+- [x] **Bilinen kozmetik hata:** `revert_hardening()`'de `xargs -I{} log_info` shell
       fonksiyonunu çağıramıyor → "sysctl reloaded" yerine stderr'e xargs hatası düşüyor.
-      İşlev etkilenmiyor.
+      ✅ v1.2.1: sayım değişkene alınıp `log_info` doğrudan çağrılıyor.
 
 ### P2 — Ek hardening modülleri
 
@@ -404,6 +413,44 @@ değişmedi. Arch: `--scan` = basic check + Lynis.
   `--confirm` (deadman yokken) exit 0 ✓.
 - **Geçitte yakalanan:** Windows checkout'tan deploy'da CRLF → `.gitattributes` ile
   `*.sh`/`*.yml` `eol=lf` zorlandı (`5ae2304`).
+
+### Hata avı — v1.2.1 ✅ (2026-08-15)
+
+Kod incelemesinde çıkan ve **VM'de doğrulanan** kusurlar (Ubuntu 24.04.4 @ .151,
+Rocky 9.8 @ .190):
+
+| # | Kusur | Etkisi |
+|---|---|---|
+| 1 | `run_apply()` son satırı `[[ -n "$DEADMAN_MIN" ]] && arm_deadman ...` | **`--deadman` verilmeyen her başarılı `--apply` exit 1 dönüyordu.** `set -e` + `&&` listesi. v1.2.0 VM turu hep `--deadman` ile koştuğu için maskelenmişti. |
+| 2 | `create_backup()` `tar` hatasını yalnız uyarıyordu | Eksik/bozuk arşiv apply'ı durdurmuyordu; `revert_hardening()` arşivde olmayan dosyaları **sildiği** için `--unapply` config öğütücüsüne dönüyordu. |
+| 3 | `download_conf()` yalnız `<id>-<sürüm>.yml` deniyordu | Arch'ta `VERSION_ID` yok → `arch-rolling.yml` aranıyordu; **`profiles/arch.yml` hiç ulaşılamıyordu.** Tüm Arch yolu ölü koddu. |
+| 4 | `usage()` her durumda `exit 0` | Yanlış yazılmış bayrak / mod verilmemesi CI'da **temiz koşu** gibi görünüyordu. |
+| 5 | `--level` gibi değer alan bayrak satır sonunda | Döngüdeki `shift` sınırı aşıyor → `set -e` scripti **mesajsız** öldürüyordu. |
+| 6 | İki mod aynı anda (`--scan --apply`) | Sessizce sonuncusu kazanıyordu — bir yazım hatası uzağı sertleştirebilirdi. |
+| 7 | `run_scan_full()` katmanları doğrudan çağırıyordu | Bayat lynis raporu / erişilemez OVAL feed **tüm `--scan`'i** öldürüyor, `--min-score` barajı hiç çalışmıyordu. |
+| 8 | `TMP_DIR=/tmp/linuxharden_$$`, `/tmp/ssg_$$` | Root olarak tahmin edilebilir `/tmp` yolu → symlink/TOCTOU yüzeyi. |
+| 9 | `revert_hardening()` `xargs -I{} log_info` | xargs shell fonksiyonu çağıramaz → stderr'e hata. |
+| 10 | `arch_basic_harden()` `limits.conf`'a her koşuda ekliyordu | Her apply'da bir çift satır daha. |
+| 11 | `run_apply_arch()` `STATE_FILE` yazmıyordu | Arch'ta apply sonrası banner "Hardening applied: None" diyordu. |
+
+**VM geçidi sonuçları (2026-08-15):**
+
+- **Ubuntu 24.04.4 (.151):** `--install` ✓ → `--scan-compliance --level 1` **%70.1**
+  (exit 0) → `--apply --level 1 --yes` **deadman'siz exit 0** ✓ (%70.1 → **%92.9**),
+  yedek "archived and verified (30 paths)" → `--scan-compliance` %92.9 (exit 0) →
+  `--unapply --yes` **exit 0**, `sysctl: 14 settings reloaded` ✓, paketler geri kuruldu
+  (rsync/telnet/ftp/ubuntu-standard), ssh ayakta → kasten bozulmuş lynis ile
+  `--scan --min-score 99`: "Lynis layer failed — continuing" → CVE katmanı yine koştu →
+  **exit 2** (baraj çalıştı).
+- **Rocky 9.8 (.190):** baseline `--scan-compliance --level 1` %58.5 ✓ →
+  `--scan-cve` (native `dnf updateinfo`) 176 CVE / 92 advisory, exit 0 ✓ →
+  argüman doğrulamaları (bilinmeyen bayrak=1, çakışan mod, eksik değer,
+  yedeksiz `--unapply`=1) ✓.
+- **Profil çözümleme (gerçek Linux'ta):** `arch → arch.yml` ✓,
+  `ubuntu 24.04 → ubuntu-24.04.yml`, `rocky 9.8 → rocky-9.yml`,
+  `opensuse-leap 15.6 → opensuse-leap-15.yml`, `debian 12 → debian-12.yml` — regresyon yok.
+- **Geçitte yakalanan:** `unattended-upgrades` dpkg kilidini tutarken `--install`
+  ham apt hatasıyla düşüyor → pre-flight maddesine eklendi (bölüm 2, P0).
 
 ### Bulgular (kalıcı, davranışı etkiler)
 
