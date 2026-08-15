@@ -16,6 +16,8 @@ Two gaps the VM sweep surfaced.
 Two things a remote operator could not see.
 - *(scan)* Lay the failing rules out in severity columns on a wide terminal ([4642eb1](https://github.com/murat-akpinar/hardenix/commit/4642eb145084aede20d02939ae9d491268ce34d0))
 One column per severity, each headed with its own count and carrying its own "… +N more", so the box height stops following whichever severity dominates — medium is routinely 75% of every failure, and a flat list spends all its rows there before reaching anything else.
+- Add --last, move reports to a fixed path, add --with-epel ([96de285](https://github.com/murat-akpinar/hardenix/commit/96de28508ffbc6b270fa6fe1b539cb7b8c68ceb3))
+--scan always re-scanned, so seeing the previous result again cost a full run: 60 s on Ubuntu, minutes on Rocky. --last reprints the last posture box from disk in 0.02 s and runs no scan at all.
 
 ### 🐛 Bug Fixes
 
