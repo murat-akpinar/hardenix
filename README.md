@@ -375,6 +375,12 @@ only as the advisory that ships the fix. The full list is in the HTML report.
   Python (no `bzip2`/`gzip` binary needed), and cached for 24h.
 - `--fix-cve` then installs only the available **security** updates; re-run
   `--scan-cve` to confirm they're cleared.
+- **A kernel fix is not live until you reboot.** `--fix-cve` says so explicitly
+  when the machine is still running an older kernel than the one it just
+  installed — until the reboot the box remains exposed and `--scan-cve` keeps
+  reporting those CVEs. That is accurate, not a stale result.
+- The feed is cached for 24 h. To force a refresh, delete
+  `reports/oval-feed/` before scanning.
 
 > Pair this with scheduled runs to catch the steady stream of new CVEs, and use
 > `--min-score` / exit codes to gate deployments in CI.

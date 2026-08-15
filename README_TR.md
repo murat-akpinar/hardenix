@@ -372,6 +372,12 @@ advisory referansı olarak gösterilir. Tam liste HTML raporda.
   binary'sine gerek yok) ve 24 saat önbelleğe alınır.
 - `--fix-cve` yalnızca mevcut **güvenlik** güncellemelerini kurar; `--scan-cve`'yi
   tekrar çalıştırarak temizlendiğini doğrula.
+- **Çekirdek yaması reboot'a kadar devrede değildir.** Makine yeni kurduğu
+  çekirdekten eskisiyle çalışmaya devam ediyorsa `--fix-cve` bunu açıkça söyler —
+  reboot edilene dek kutu açık kalır ve `--scan-cve` o CVE'leri raporlamayı
+  sürdürür. Bu bayat sonuç değil, doğru sonuçtur.
+- Feed 24 saat önbelleklenir. Tazelemeye zorlamak için taramadan önce
+  `reports/oval-feed/` dizinini sil.
 
 > Bunu zamanlı çalıştırmalarla eşleştirerek sürekli çıkan yeni CVE'leri yakala;
 > `--min-score` / çıkış kodlarıyla CI'da deploy'ları kapıda durdur.
