@@ -670,13 +670,29 @@ eklendi (yine `main()`'den bir kez — `$( )` tuzağı). `W`: TTY yoksa 70, vars
 | 200×50 | 200 | 110 (tavan) | 118 | ✓ |
 | boru / CI | 0 | 70 | 78 | ✓ |
 
-**Çoklu sütun reddedildi.** Ölçüm: kural adları medyan 28 / p90 41 / max 48
-karakter. Üç sütun kesme olmadan ~145 sütunluk terminal ister; altında isimler
-ayırt edilemez öneklere çöküyor — `sshd_disable_…` tek başına beş kuralla
-eşleşiyor, `accounts_password…` ise onlarcasıyla. Kazanılacak şey de çoğunlukla
-MEDIUM isimleri (Rocky'de 193 fail'in 169'u), yani karar verilmeyen veri.
-Severity sayım satırı bu bilgiyi zaten tek satırda veriyor. Gerekçe
-`docs/script-internals.md`'ye yazıldı ki tekrar açılmasın.
+**Çoklu sütun — önce reddedildim, maintainer ısrar etti, yapıldı.** İtirazım
+ölçüye dayanıyordu: kural adları medyan 28 / p90 41 / max 48 karakter, dar
+hücrede `sshd_disable_…` beş kuralla eşleşiyor. Maintainer iki kez istedi; karar
+onun, uyguladım — ama sütunlar yalnız **okunabilir kaldıkları yerde** çıkacak
+şekilde:
+
+`cell = (W - 3*(n-1)) // n`, n = mevcut severity sayısı. `cell >= 20` ise
+severity başına bir sütun (`HIGH (4) │ MEDIUM (94) │ LOW (22) │ UNKNOWN (3)`),
+altındaysa bugünkü düz liste. Her sütun aynı satır bütçesiyle sınırlı ve kendi
+`… +N more` satırını taşıyor, böylece kutu yüksekliği baskın severity'ye
+(genelde medium, fail'lerin ~%75'i) bağlı kalmıyor. Genişlik tavanı (110)
+kaldırıldı — sütunların yaşaması için terminalin tamamı gerekiyor.
+
+| Terminal | W | hücre | Yerleşim |
+|---|---|---|---|
+| 80 | 70 | 15 | tek sütun |
+| 120 | 110 | 25 | 4 sütun |
+| 160 | 150 | 35 | 4 sütun, isimlerin ~%87'si kesilmiyor |
+| 200 | 190 | 45 | 4 sütun, ~%98 |
+| boru / CI | 70 | 15 | tek sütun, **tüm** kurallar |
+
+Gerçek ARF ile doğrulandı: 120→118 sütun, 160→158 sütun, 80→78 sütun/20 satır,
+boru→133 satır (123 kuralın tamamı). Tüm satır genişlikleri her modda tutarlı.
 
 **Doğrulama — Ubuntu 24.04.4, tam yaşam döngüsü 8/8 rc=0:**
 

@@ -1333,7 +1333,7 @@ ANSI = re.compile(r'\033\[[0-9;]*m')
 # use the floor and keep logs and reports a stable shape.
 try:    cols = int(cols)
 except ValueError: cols = 0
-W = 70 if cols <= 0 else min(max(cols - 10, 40), 110)
+W = 70 if cols <= 0 else max(cols - 10, 40)
 def vlen(s): return len(ANSI.sub('', s))
 def row(s):  return f"  │  {s}{' ' * max(0, W - vlen(s))}  │"
 def sep():   return "  ├" + "─" * (W + 4) + "┤"
@@ -1415,7 +1415,49 @@ if 'cve_total' in st:
 else:
     print(row(f"{'CVE':<12} {Y}{'skipped':<9}{NC} no feed configured or scan failed"))
 
-if failed:
+# One column per severity, side by side, when the terminal is wide enough to
+# give each column something legible. Rule names run 28 median / 41 p90 / 48 max
+# characters, so below MIN_CELL a column shows prefixes that match five different
+# rules and the layout stops carrying information — there we fall back to the
+# single-column list. Column heights are capped at the same row budget, so the
+# box height does not follow the tallest severity (medium is usually ~75% of
+# every failure).
+MIN_CELL = 20          # narrowest column that still says something
+GUT      = 3           # " │ " between columns
+
+by_sev = {}
+for _, sev, short in failed:
+    by_sev.setdefault(sev, []).append(short)
+present = [s for s in ('high', 'medium', 'low', 'unknown') if by_sev.get(s)]
+
+cell = 0
+if present:
+    cell = (W - GUT * (len(present) - 1)) // len(present)
+
+if failed and present and cell >= MIN_CELL:
+    print(sep())
+    cap = len(failed) if rows == 0 else max(1, rows)
+
+    def clip(s, n):
+        return s if len(s) <= n else s[:n - 1] + '…'
+
+    heads, bodies = [], []
+    for s in present:
+        items = by_sev[s]
+        body = [clip(x, cell) for x in items[:cap]]
+        if len(items) > cap:
+            body = body[:max(0, cap - 1)] + [clip(f"… +{len(items) - (cap - 1)} more", cell)]
+        heads.append(f"{SEV_COLOR.get(s, NC)}{clip(f'{s.upper()} ({len(items)})', cell):<{cell}}{NC}")
+        bodies.append(body)
+
+    print(row((' ' + B + '│' + NC + ' ').join(heads)))
+    for i in range(max(len(b) for b in bodies)):
+        line = []
+        for c, s in enumerate(present):
+            txt = bodies[c][i] if i < len(bodies[c]) else ''
+            line.append(f"{SEV_COLOR.get(s, NC)}{txt:<{cell}}{NC}")
+        print(row((' ' + B + '│' + NC + ' ').join(line)))
+elif failed:
     print(sep())
     shown = failed if rows == 0 else failed[:max(1, rows)]
     for _, sev, short in shown:

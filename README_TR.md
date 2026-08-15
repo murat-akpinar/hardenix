@@ -314,8 +314,23 @@ yok. Çıktı **tek bir duruş kutusuyla** biter — üç katman ve önemli bulg
 kullanılabilir yapan şey budur: tek başına `… +16 more failing rules` o 16'nın
 içinde ne olduğunu söylemiyor, `19 fail` de eyleme dönüşmüyor — `2 high` dönüşüyor.
 
-Liste terminal yüksekliğine göre boyutlanır, böylece kutu her zaman tek ekrana
-sığar; ASCII banner da kısa terminallerde tek satıra iner.
+Geniş terminalde başarısız kurallar **severity başına bir sütun** olarak
+diziliyor; her sütunun kendi sayısı ve kendi `… +N more` satırı var, böylece kutu
+yüksekliği hangi severity baskınsa ona bağlı kalmıyor:
+
+```
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  HIGH (4)              │ MEDIUM (94)            │ LOW (22)             │
+  │  grub2_password        │ account_disable_post…  │ grub2_audit_argument │
+  │  grub2_uefi_password   │ accounts_maximum_age…  │ kernel_module_cramf… │
+  │  no_empty_passwords…   │ … +92 more             │ … +20 more           │
+```
+
+Sütunlar yalnız okunabilir kaldıkları yerde çıkar — hücre 20 karakterin altına
+inince kural adı birden çok kuralın paylaştığı bir öneke çöküyor, o yüzden dar
+konsol ve yönlendirilmiş çıktı düz severity sıralı listeyi koruyor. Kutu
+terminale göre boyutlanır, hep tek ekrana sığar; ASCII banner kısa terminalde
+tek satıra iner.
 
 **Çıktı terminale gitmiyorsa hiçbir şey düşmez.** Dosyaya yönlendir, boruya ver
 ya da CI'da çalıştır — kutu *bütün* başarısız kuralları listeler; `--full`

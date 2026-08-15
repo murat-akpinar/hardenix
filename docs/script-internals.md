@@ -342,11 +342,35 @@ from stretching the box past the point where the eye can track a row. Everything
 that draws — `row()`, `sep()`, the title, the rule-name clip, the report path —
 is already expressed in terms of `W`, so the width is the only knob.
 
-Multi-column listings were considered and rejected: rule names measure 28 median
-/ 41 p90 / 48 max characters, so three columns need ~145 columns of terminal to
-avoid truncation, and below that the names collapse into indistinguishable
-prefixes (`sshd_disable_…` alone matches five rules). The severity counts row
-carries the information a narrow box would otherwise have to spend rows on.
+### The failing-rule listing has two layouts
+
+**Severity columns** — one column per severity present, side by side, each headed
+`HIGH (4)` / `MEDIUM (94)` / … This is the layout on a wide terminal, and it is
+what makes the height independent of how lopsided the severity mix is (medium is
+routinely 75% of every failure).
+
+**Single column** — the flat, severity-ordered list, used when the columns would
+stop carrying information.
+
+The switch is `cell >= MIN_CELL` where `cell = (W - 3*(n-1)) // n` for `n`
+severities present and `MIN_CELL = 20`. That threshold comes from measurement:
+rule names run 28 median / 41 p90 / 48 max characters, and below ~20 columns a
+cell shows a prefix that several rules share — `sshd_disable_…` alone matches
+five. So the columns appear where they help and get out of the way where they
+would lie:
+
+| Terminal | `W` | cell (4 severities) | Layout |
+|----------|-----|---------------------|--------|
+| 80 | 70 | 15 | single column |
+| 120 | 110 | 25 | 4 columns |
+| 160 | 150 | 35 | 4 columns, ~87% of names untruncated |
+| 200 | 190 | 45 | 4 columns, ~98% untruncated |
+| pipe / CI | 70 | 15 | single column, **every** rule listed |
+
+Each column is capped at the same row budget and gets its own `… +N more`, so
+the box height stays bounded no matter how many rules fail. Off a TTY the width
+is the 70-column floor, which lands below `MIN_CELL` — that is deliberate: logs
+and CI output keep the flat list with nothing dropped.
 
 `print_failing_rules()` and the two CVE summaries take a row budget; `0` means
 unlimited and keeps the original grouped-by-severity layout. With a budget they

@@ -318,8 +318,23 @@ trimmed listing usable: `… +16 more failing rules` on its own tells you nothin
 about what is in those 16, and a count of `19 fail` is not something you can act
 on — `2 high` is.
 
-The listing is sized to the terminal, so the box always fits one screen, and the
-ASCII banner collapses to one line on short terminals.
+On a wide terminal the failing rules are laid out in **one column per severity**,
+each with its own count and its own `… +N more`, so the box height no longer
+follows whichever severity happens to dominate:
+
+```
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  HIGH (4)              │ MEDIUM (94)            │ LOW (22)             │
+  │  grub2_password        │ account_disable_post…  │ grub2_audit_argument │
+  │  grub2_uefi_password   │ accounts_maximum_age…  │ kernel_module_cramf… │
+  │  no_empty_passwords…   │ … +92 more             │ … +20 more           │
+```
+
+Columns appear only where they stay readable — below 20 characters per cell a
+rule name collapses to a prefix several rules share, so a narrow console and
+redirected output keep the flat, severity-ordered list. The box is sized to the
+terminal, so it always fits one screen, and the ASCII banner collapses to one
+line on short terminals.
 
 **Nothing is dropped when output is not a terminal.** Redirect it, pipe it or run
 it in CI and the box lists *every* failing rule; `--full` does the same on a
