@@ -213,6 +213,8 @@ sudo ./linuxharden.sh --scan --min-score 90 || echo "baseline altında — deplo
 | `--confirm` | Bekleyen dead-man geri almasını iptal et (hardening'i koru) |
 | `--yes` | Onay promptlarını atla (etkileşimsiz / CI) |
 | `--full` | Listeyi ekrana kırpmak yerine tüm bulguları yazdır |
+| `--keep <N>` | `--apply` ile: yalnız en yeni N yedeği tut (varsayılan 5, `0` = hepsi) |
+| `--refresh-feed` | OVAL feed'ini 24 saatlik cache yerine yeniden indir |
 | `--min-score <N>` | `--scan` skoru N'in altındaysa hata koduyla çıkar (CI barajı) |
 | `--conf <dosya>` | Yerel .yml profil dosyası kullan |
 
@@ -376,8 +378,8 @@ advisory referansı olarak gösterilir. Tam liste HTML raporda.
   çekirdekten eskisiyle çalışmaya devam ediyorsa `--fix-cve` bunu açıkça söyler —
   reboot edilene dek kutu açık kalır ve `--scan-cve` o CVE'leri raporlamayı
   sürdürür. Bu bayat sonuç değil, doğru sonuçtur.
-- Feed 24 saat önbelleklenir. Tazelemeye zorlamak için taramadan önce
-  `reports/oval-feed/` dizinini sil.
+- Feed 24 saat önbelleklenir; yeniden indirmek için **`--refresh-feed`** ver.
+  Satıcılar her gün advisory yayımladığı için cache'li feed bir gün geride kalabilir.
 
 > Bunu zamanlı çalıştırmalarla eşleştirerek sürekli çıkan yeni CVE'leri yakala;
 > `--min-score` / çıkış kodlarıyla CI'da deploy'ları kapıda durdur.

@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly SCRIPT_VERSION="1.3.1"
+readonly SCRIPT_VERSION="1.4.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly BACKUP_BASE="/var/lib/linuxharden"
@@ -21,6 +21,8 @@ DRY_RUN=false
 ASSUME_YES=false        # --yes / --non-interactive: skip confirmation prompts
 MIN_SCORE=""            # --min-score N: exit non-zero if scan score < N
 DEADMAN_MIN=""          # --deadman N: auto-revert N min after apply unless --confirm
+BACKUP_KEEP=5           # --keep N: backups to retain after an apply; 0 = keep all
+REFRESH_FEED=false      # --refresh-feed: ignore the 24h OVAL cache
 DEFER_MIN_SCORE=false   # true during --scan (combined): gate runs after all layers
 LAST_SCAN_ARF=""        # set by run_scan; consumed by run_scan_full's final gate
 FULL_OUTPUT=false       # --full: never trim listings to the terminal height
@@ -39,6 +41,7 @@ SEC_LEVEL="2" SEC_LEVEL_LABEL="CIS Level 2 (strict)"
 
 # Populated by parse_conf
 PKG_MANAGER="" OSCAP_PKG="" SSG_PKG="" XML_PATH="" PROFILE_ID="" ARCH_FALLBACK="false"
+META_DISTRO="" META_VERSION=""   # meta.distro / meta.version — sanity-check --conf
 LYNIS_PKG=""            # packages.lynis (default: lynis) — for --install / --scan-lynis
 OVAL_URL=""             # scap.oval_url: vendor CVE/OVAL feed for --scan-cve
 BACKUP_DIRS="" EXCLUSION_RULES="" EXCLUSION_SERVICES="" EXCLUSION_PATHS=""
@@ -175,6 +178,8 @@ usage() {
     echo "  --level <1|2>       Hardening level: 1 = CIS Level 1 (basic), 2 = CIS Level 2 (strict, default)"
     echo "  --format <type>     Report format: html | json | both  (default: html)"
     echo "  --yes               Skip confirmation prompts (non-interactive / CI)"
+    echo "  --keep <N>          With --apply: keep only the newest N backups (default: 5, 0 = all)"
+    echo "  --refresh-feed      Re-download the OVAL feed instead of using the 24h cache"
     echo "  --full              Print every finding instead of trimming to the screen"
     echo "  --min-score <N>     Exit non-zero if --scan score is below N (CI gate)"
     echo "  --deadman <min>     With --apply: auto-revert after <min> unless --confirm"
@@ -259,6 +264,8 @@ parse_args() {
             --deadman)   require_val "$1" "${2:-}"; DEADMAN_MIN="$2"; shift ;;
             --yes|--non-interactive) ASSUME_YES=true ;;
             --full)      FULL_OUTPUT=true ;;
+            --refresh-feed) REFRESH_FEED=true ;;
+            --keep)      require_val "$1" "${2:-}"; BACKUP_KEEP="$2"; shift ;;
             --min-score) require_val "$1" "${2:-}"; MIN_SCORE="$2"; shift ;;
             --level)     require_val "$1" "${2:-}"; SEC_LEVEL="$2"; shift ;;
             --format)    require_val "$1" "${2:-}"; REPORT_FORMAT="$2"; shift ;;
@@ -284,6 +291,10 @@ parse_args() {
     if [[ -n "$MIN_SCORE" && "$MODE" == "scan_lynis" ]]; then
         log_warn "--min-score has no effect with --scan-lynis (no compliance score) — ignoring."
         MIN_SCORE=""
+    fi
+
+    if [[ ! "$BACKUP_KEEP" =~ ^[0-9]+$ ]]; then
+        log_error "Invalid --keep: $BACKUP_KEEP (use a non-negative integer; 0 keeps everything)"; exit 1
     fi
 
     if [[ -n "$DEADMAN_MIN" ]]; then
@@ -439,6 +450,8 @@ print(f'XML_PATH={q(scap.get("xml_path",""))}')
 print(f'OVAL_URL={q(scap.get("oval_url",""))}')
 print(f'PROFILE_ID={q(profile_id)}')
 print(f'ARCH_FALLBACK={q(str(meta.get("arch_fallback", False)).lower())}')
+print(f'META_DISTRO={q(meta.get("distro",""))}')
+print(f'META_VERSION={q(str(meta.get("version","")))}')
 print(f'BACKUP_DIRS={qlist(bkup.get("config_dirs", []))}')
 print(f'EXCLUSION_RULES={qlist(excl.get("rules", []))}')
 print(f'EXCLUSION_SERVICES={qlist(excl.get("services", []))}')
@@ -457,6 +470,14 @@ PYEOF
     eval "$output"
 
     if [[ -z "$PKG_MANAGER" ]]; then log_error "Invalid .yml: missing packages.manager"; exit 1; fi
+
+    # A hand-picked --conf is easy to get wrong, and the failure is quiet: the
+    # wrong datastream, the wrong package manager, or — with arch_fallback — the
+    # basic Arch path on a box that has full SCAP content.
+    if [[ -n "$META_DISTRO" && -n "${DISTRO_ID:-}" && "$META_DISTRO" != "$DISTRO_ID" ]]; then
+        log_warn "Profile targets '${META_DISTRO}${META_VERSION:+ $META_VERSION}' but this machine is '${DISTRO_ID} ${DISTRO_VERSION:-}'."
+        echo -e "  Continuing with $(basename "$CONF_FILE") as asked — expect wrong paths if that was not deliberate." >&2
+    fi
 
     if [[ "$ARCH_FALLBACK" == "true" ]]; then
         case "$MODE" in
@@ -807,6 +828,33 @@ pkg_install() {
 
 # ── Backup ────────────────────────────────────────────────────────────────────
 
+# Keep only the newest $BACKUP_KEEP backups. Every apply writes a full tarball of
+# the profile's config paths, so an unbounded history fills the disk on any box
+# that is hardened repeatedly. Logs to stderr — create_backup()'s stdout is its
+# return value.
+prune_backups() {
+    [[ "$BACKUP_KEEP" -gt 0 ]] || return 0
+
+    local dirs=()
+    mapfile -t dirs < <(find "$BACKUP_BASE" -mindepth 1 -maxdepth 1 -type d \
+                        -name '20*_*' -printf '%f\n' 2>/dev/null | sort -r)
+    [[ ${#dirs[@]} -le "$BACKUP_KEEP" ]] && return 0
+
+    # Never prune the one --unapply would use, whatever its age.
+    local keep_target=""
+    [[ -e "${BACKUP_BASE}/latest" ]] && keep_target=$(basename "$(readlink -f "${BACKUP_BASE}/latest")")
+
+    local removed=0 d
+    for d in "${dirs[@]:$BACKUP_KEEP}"; do
+        [[ "$d" == "$keep_target" ]] && continue
+        rm -rf "${BACKUP_BASE:?}/${d}" && removed=$((removed + 1))
+    done
+    if [[ "$removed" -gt 0 ]]; then
+        log_info "Pruned ${removed} old backup(s) — keeping ${BACKUP_KEEP} (--keep)" >&2
+    fi
+    return 0
+}
+
 create_backup() {
     local backup_dir; backup_dir="${BACKUP_BASE}/$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$backup_dir"
@@ -901,6 +949,7 @@ EOF
 
     ln -sfn "$backup_dir" "${BACKUP_BASE}/latest"
     log_info "Backup complete: $backup_dir" >&2
+    prune_backups          # after `latest` is repointed, so it is never the victim
     echo "$backup_dir"
 }
 
@@ -1498,8 +1547,11 @@ download_oval_feed() {
     mkdir -p "$(dirname "$out")"
 
     # Reuse a fresh cached copy (< 24h old) to avoid re-downloading every run.
-    if [[ -f "$out" ]] && find "$out" -mtime -1 2>/dev/null | grep -q .; then
-        log_detail "Using cached OVAL feed ($(date -r "$out" '+%Y-%m-%d %H:%M'))"
+    # --refresh-feed skips the cache: vendors publish advisories daily, so a
+    # cached feed can be up to a day behind the CVEs it is supposed to report.
+    if [[ "$REFRESH_FEED" != true ]] \
+       && [[ -f "$out" ]] && find "$out" -mtime -1 2>/dev/null | grep -q .; then
+        log_detail "Using cached OVAL feed ($(date -r "$out" '+%Y-%m-%d %H:%M')) — --refresh-feed to re-download"
         return 0
     fi
 

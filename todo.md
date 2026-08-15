@@ -46,9 +46,11 @@ Sıralama **değer / efor** oranına göre. P0 = bir sonraki sürümde yapılmal
 Eski FAZ 2 tamamlanmış işaretlenmişti; gerçekte yalnız **backup kapsamı genişletme**
 kısmı yapıldı. Kalan 5 madde hâlâ açık ve hepsi üretimde canını yakacak türden:
 
-- [ ] **Backup rotasyonu — `--keep N` (varsayılan 5).** `create_backup()` her apply'da
-      `/var/lib/linuxharden/<ts>/` altına yeni `configs.tar.gz` yazıyor, hiçbiri
-      silinmiyor. `/etc` tarball'ı × sınırsız apply = disk dolar.
+- [x] **Backup rotasyonu — `--keep N` (varsayılan 5).** ✅ v1.4.0. `prune_backups()`
+      `latest`'in gösterdiği dizini yaşı ne olursa olsun asla budamıyor (unapply'ın
+      kullanacağı yedek o). Linux'ta 10 birim testi + Rocky'de canlı: 3 yedek →
+      `--apply --keep 2` → 4 oldu → 2'ye budandı, `latest` hâlâ çözülüyor.
+      `--keep 0` hepsini tutar.
 - [x] **Backup bütünlük doğrulaması.** ✅ v1.2.1. `create_backup()` artık `tar` çıkışını
       ayırt ediyor (≥2 = ölümcül, 1 = "dosya değişti" uyarısı), arşivi `tar tzf` ile
       geri okuyor ve **arşivlemeyi hedeflediği her yolun listede olduğunu** doğruluyor;
@@ -529,15 +531,14 @@ skor aynı.
 
 **Yeni backlog maddeleri (bölüm 2'ye taşınacak):**
 
-- [ ] **OVAL feed cache'ini tazeleme yolu yok.** 24 saat cache'leniyor; yeni bir
-      USN çıkarsa `--scan-cve` bir gün boyunca eski veriyi raporlar. Elle
-      `rm -rf reports/oval-feed/` gerekiyor. `--refresh-feed` bayrağı.
-- [ ] **`--conf` profil/distro uyuşmazlığını uyarmıyor.** Rocky'de
-      `--conf profiles/arch.yml` sessizce "Arch basic" moduna düşüyor ve
-      "Arch: full SCAP not available" diyor — kutu Rocky. `meta.distro` ile
-      `DISTRO_ID` karşılaştırılıp uyarılmalı.
-- [ ] **Yedekler birikiyor (ölçüldü).** Ubuntu'da 4, Rocky'de 4 backup dizini
-      oluştu; hiçbiri budanmıyor → `--keep N` (bölüm 2, P0) maddesini doğruluyor.
+- [x] **OVAL feed cache'ini tazeleme yolu yok.** ✅ v1.4.0 `--refresh-feed`.
+      Ubuntu'da doğrulandı: bayraksız cache kullanılıyor, bayrakla yeniden
+      indiriliyor (feed mtime değişti). Cache mesajı da bayrağı hatırlatıyor.
+- [x] **`--conf` profil/distro uyuşmazlığını uyarmıyor.** ✅ v1.4.0. `parse_conf()`
+      artık `meta.distro`/`meta.version` okuyup `DISTRO_ID` ile karşılaştırıyor;
+      uyuşmuyorsa uyarıp devam ediyor (`--conf` bir override, hata değil).
+      İki kutuda doğrulandı: `--conf profiles/arch.yml` uyarıyor, doğru profil 0 uyarı.
+- [x] **Yedekler birikiyor (ölçüldü).** ✅ v1.4.0 `--keep N` ile çözüldü (yukarı).
 
 ### Bulgular (kalıcı, davranışı etkiler)
 

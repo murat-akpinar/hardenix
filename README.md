@@ -214,6 +214,8 @@ sudo ./linuxharden.sh --scan --min-score 90 || echo "below baseline — blocking
 | `--confirm` | Cancel a pending dead-man auto-revert (keep the hardening) |
 | `--yes` | Skip confirmation prompts (non-interactive / CI) |
 | `--full` | Print every finding instead of trimming the listing to the screen |
+| `--keep <N>` | With `--apply`: keep only the newest N backups (default 5, `0` keeps all) |
+| `--refresh-feed` | Re-download the OVAL feed instead of using the 24 h cache |
 | `--min-score <N>` | Exit non-zero if the `--scan` score is below N (CI gate) |
 | `--conf <file>` | Use a local .yml profile file |
 
@@ -305,7 +307,10 @@ hooks:
 ## Backup & rollback
 
 `--apply` always takes a backup under `/var/lib/linuxharden/<date>/` before making
-any changes:
+any changes. The archive is **verified before the first change** — a `tar` failure,
+an unreadable archive or a missing path aborts the apply while the system is still
+untouched. The newest **5** backups are kept (`--keep N`, `--keep 0` keeps all);
+the one `latest` points at is never pruned.
 
 ```
 /var/lib/linuxharden/
@@ -379,8 +384,8 @@ only as the advisory that ships the fix. The full list is in the HTML report.
   when the machine is still running an older kernel than the one it just
   installed — until the reboot the box remains exposed and `--scan-cve` keeps
   reporting those CVEs. That is accurate, not a stale result.
-- The feed is cached for 24 h. To force a refresh, delete
-  `reports/oval-feed/` before scanning.
+- The feed is cached for 24 h; pass **`--refresh-feed`** to re-download it. A
+  vendor publishes advisories daily, so a cached feed can be a day behind.
 
 > Pair this with scheduled runs to catch the steady stream of new CVEs, and use
 > `--min-score` / exit codes to gate deployments in CI.

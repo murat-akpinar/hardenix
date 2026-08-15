@@ -176,7 +176,8 @@ Two engines, chosen by package manager:
 
 The OVAL path (`scan_cve_oval()`): feed is downloaded with curl/wget, decompressed
 by **python3** (`bz2`/`gzip` modules — no external binaries), cached under
-`./reports/oval-feed/` and reused if younger than 24 h. Results are summarized
+`./reports/oval-feed/` and reused if younger than 24 h — `--refresh-feed` skips
+the cache. Results are summarized
 **CVE-centric** (severity-grouped; the advisory/USN shown as the fix reference),
 full detail in `cve_<ts>.html`.
 
@@ -233,8 +234,15 @@ treats `tar` exit ≥ 2 as fatal, re-reads the archive with `tar tzf`, and asser
 that every path it meant to archive is actually present. Any of those failing
 returns non-zero and `run_apply()` aborts while the system is still untouched.
 
+`prune_backups()` keeps the newest `--keep N` (default 5) and never touches the
+directory `latest` resolves to, whatever its age — that is the one `--unapply`
+would use.
+
 **Rule for contributors:** any new mutation must be captured here *and* reverted
-in `revert_hardening()` — extend both sides, additively.
+in `revert_hardening()` — extend both sides, additively. The profile's
+`backup.config_dirs` is the other half: a path the remediation writes but the
+profile does not list simply stays applied after `--unapply`. That was measured
+on a VM (58 files, 40 rules stuck) before the profiles were extended.
 
 ## Profiles (`profiles/*.yml`)
 
