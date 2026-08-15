@@ -65,13 +65,18 @@ kısmı yapıldı. Kalan 5 madde hâlâ açık ve hepsi üretimde canını yakac
       `--apply` çalıştıran biri sshd Ciphers/MACs/Kex/PermitRootLogin kurallarında ek
       uyarı almıyor. Dead-man switch bunu kurtarıyor ama **yalnız `--deadman`
       verildiyse**; uyarı ucuz sigorta.
-      **2026-08-15 canlı örnek:** sertleştirilmiş kutularda `MaxAuthTries` 4'e
-      indiği için, `~/.ssh`'ında birden çok anahtar olan bir istemci düz
-      `ssh root@host` ile **reddedildi** (anahtar bütçesi sunucuya ulaşmadan
-      tükeniyor); `-i <anahtar> -o IdentitiesOnly=yes` ile sorunsuz giriyordu.
-      Pristine kutuda aynı istemci sorunsuz. Yani lockout'un en olası biçimi
-      PermitRootLogin değil, **MaxAuthTries + çok anahtarlı istemci**. Uyarı bunu
-      da söylemeli.
+      **2026-08-15 canlı örnek — düzeltilmiş teşhis.** İlk okumam `MaxAuthTries 4`
+      + çok anahtarlı istemci yönündeydi; **yanlıştı**. Aynı gün ikinci turda
+      `-o IdentitiesOnly=yes -i <tek anahtar>` ile, yani deneme bütçesi hiç
+      tükenmeden, **iki kutu da** (Ubuntu 24.04 ve Rocky 9.8) `Permission denied
+      (publickey)` verdi. Sebep net: `sshd_disable_root_login` baseline'da fail
+      listesinde (`MEDIUM sshd_disable_root_login`), `--apply --level 1` onu
+      `PermitRootLogin no` yapıyor ve **root SSH tamamen kapanıyor**. Fark
+      önemli: MaxAuthTries istemci tarafında çözülebilir, PermitRootLogin
+      çözülemez — kutuya konsoldan ya da başka kullanıcıyla girmek gerekir.
+      İki kutuda da erişim ancak sweep'in `--unapply` adımından sonra döndü.
+      Uyarı bu kuralı **adıyla** söylemeli ve root dışında sudo'lu bir kullanıcı
+      olup olmadığını kontrol etmeli.
 - [ ] **Pre-flight kontrolleri:** disk alanı (backup için), `/etc` yazılabilir mi, ağ
       var mı (unapply'ın paket reinstall'ı için). Şu an hepsi iş ortasında patlıyor —
       yarım uygulanmış hardening en kötü durum.
@@ -80,6 +85,24 @@ kısmı yapıldı. Kalan 5 madde hâlâ açık ve hepsi üretimde canını yakac
       `E: Could not get lock /var/lib/dpkg/lock-frontend` ile düştü — hardenix
       seviyesinde tek satır mesaj yok. `fuser /var/lib/dpkg/lock-frontend` /
       `dnf` `/var/run/dnf.pid` kontrolü + anlaşılır hata.
+- [ ] **`oscap` çağrılarında watchdog yok — asılı kalan tarama sonsuza kadar asılı
+      kalıyor.** 2026-08-15, Ubuntu 24.04.4, oscap **1.3.9**: `--scan --level 1
+      --full` çalışırken oscap **deadlock**'a girdi. Ölçülen kanıt: 15 dakika
+      boyunca `%CPU 0.1`, `utime/stime` iki örnekleme arasında **birebir aynı**
+      (95/23 jiffies), `rchar`/`syscr` **sabit** (372334035 / 174101), ARF dosyası
+      hiç oluşmadı, **59 thread'in tamamı** `futex_wait_queue`'da — hiçbiri
+      çalışabilir durumda değil. Thread kompozisyonu 19×(`input_handler` +
+      `icache_worker` + `common_main`) + 1 `probe_worker`, yani probe icache
+      katmanı. `SIGTERM` **yutuldu** (handler çalışamıyor), `SIGKILL` gerekti.
+      Sistem sağlıklıydı: `systemctl is-system-running` = running, bekleyen job
+      yok, 0 failed unit, dbus ayakta.
+      **Bu bir hardenix kusuru değil** — upstream OpenSCAP 1.3.9 probe deadlock'u.
+      **Hardenix kusuru şu:** `oscap` çağrılarının hiçbirinde timeout/watchdog yok,
+      dolayısıyla `--scan` süresiz asılı kalıyor. Cron/systemd timer altında bu
+      kalıcı takılı iş demek. Test harness'ında `timeout 1800` olduğu için kurtuldu.
+      Gerekli: `oscap` çağrılarını yapılandırılabilir bir watchdog'a al
+      (`--timeout <dk>`, makul varsayılan), aşımda anlaşılır hata + exit 1, ve
+      `--apply` ortasında olursa yedeğin durumu net söylensin.
 
 **Test geçidi:** rotasyon eski backup'ları buduyor · bozuk tarball apply'ı durduruyor ·
 `--from` doğru backup'ı seçiyor · uzak oturumda lockout uyarısı çıkıyor · disksiz/
@@ -588,6 +611,43 @@ satır) açıkta, gerisi `<details>` altında üç grup halinde. Her iki dil de 
 **Not:** shellcheck bu iş sırasında geliştirme makinesinde kurulu değildi;
 `bash -n` + `check-docs.py` + davranış ölçümleri yeşil. shellcheck bir sonraki
 VM turunda koşturulmalı.
+
+### Motor satırı + severity dökümü — v1.4.2 ✅ (2026-08-15)
+
+**Sorun 1:** tarama başında yalnız `[✓] oscap 1.3.9 — OK` yazıyordu. Lynis kurulu
+mu değil mi belli değildi; eksikse uyarı **dakikalar sonra**, compliance bitip
+audit katmanına gelindiğinde çıkıyordu. `check_dependencies()` artık motor kümesini
+tek satırda söylüyor: `Engines: oscap 1.3.9 · lynis 3.0.9`, yoksa `--install-lynis`
+işaret eden uyarı. Lynis opsiyonel kalmaya devam ediyor — eksikliği asla hata değil.
+
+**Sorun 2:** `128 fail` eyleme dönüşmüyor, kırpılmış listenin altındaki
+`… +118 more failing rules` ise o 118'in içinde ne olduğunu hiç söylemiyor. Kutuya
+**Failing** satırı eklendi: `128  ·  4 high · 98 medium · 22 low · 4 unknown`.
+Yeni veri toplamaya gerek olmadı — kutuyu çizen python zaten ARF'i parse edip
+severity tutuyordu; parse yukarı alındı, liste hem sayım hem listeleme için
+kullanılıyor. Kuyruk `W-23` sütuna kırpılıyor, böylece dört haneli sayılar sağ
+kenarı bozamıyor. Kutu 4 sabit satıra çıktığı için liste bütçesi `h-14` → `h-15`.
+
+**Geçitte yakalanan — invaryant #1'i kırıyordum.** İlk sürüm versiyonu
+`lynis show version` çalıştırarak alıyordu. Gerçek kutuda kontrollü ölçüm:
+12 saniye boşta bekleyişte sıfır oynama, ama komuttan sonra
+`/var/log/lynis-report.dat` **31831 → 709 byte**. Yani `lynis show version` bir
+**yazma** işlemi ve `check_dependencies()` `--scan`/`--dry-run` yolunda koşuyor —
+her salt-okunur tarama Lynis raporunu siliyor olacaktı. Versiyon artık
+`/usr/sbin/lynis` içindeki `PROGRAM_VERSION="3.0.9"` satırından **okunuyor**,
+lynis hiç çalıştırılmıyor. `bash -n` ve shellcheck ikisi de yeşildi; bunu yalnız
+gerçek kutuda kontrol grubuyla ölçmek yakaladı.
+
+**Ölçüm (Ubuntu 24.04.4, gerçek ARF):**
+
+| Kontrol | Sonuç |
+|---|---|
+| `Engines` satırı, lynis kurulu | `oscap 1.3.9 · lynis 3.0.9` |
+| `Engines` satırı, lynis PATH'ten gizli | uyarı + `--install-lynis` ipucu |
+| lynis dosyaları tarama öncesi/sonrası | 709 / 610286 → **709 / 610286** (değişmedi) |
+| kontrol grubu (12 sn boşta) | sıfır oynama |
+| kutu satır genişlikleri | hepsi **70 sütun** (4 haneli sayılarla da) |
+| kutu yüksekliği, `rows=9` | 20 satır — 24 satırlık konsola sığıyor |
 
 ### Bulgular (kalıcı, davranışı etkiler)
 

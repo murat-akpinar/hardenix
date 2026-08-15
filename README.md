@@ -293,19 +293,25 @@ scrollback. It ends with a **single posture box** carrying all three layers plus
 the findings that matter:
 
 ```
-  ┌─ hardenix 1.3.0 · Ubuntu 24.04.4 LTS · CIS Level 1 (basic) ───┐
-  │  Compliance   92.9 %    245 pass · 19 fail                    │
-  │  Lynis        58/100    12 warnings · 41 suggestions          │
-  │  CVE          340       8 critical · 44 high · 92 advisories  │
-  ├───────────────────────────────────────────────────────────────┤
-  │  HIGH    package_telnetd_removed                              │
-  │  HIGH    sshd_disable_root_login                              │
-  │  MEDIUM  mount_option_tmp_nodev                               │
-  │  … +126 more failing rules                                    │
-  ├───────────────────────────────────────────────────────────────┤
-  │  reports/scan_20260815_141230.html                            │
-  └───────────────────────────────────────────────────────────────┘
+  ┌─ hardenix 1.4.2 · Ubuntu 24.04.4 LTS · CIS Level 1 (basic) ──────┐
+  │  Compliance   92.9 %    245 pass · 19 fail                       │
+  │  Failing      19        2 high · 12 medium · 5 low               │
+  │  Lynis        58/100    12 warnings · 41 suggestions             │
+  │  CVE          340       8 critical · 44 high · 92 advisories     │
+  ├──────────────────────────────────────────────────────────────────┤
+  │  HIGH    package_telnetd_removed                                 │
+  │  HIGH    sshd_disable_root_login                                 │
+  │  MEDIUM  mount_option_tmp_nodev                                  │
+  │  … +16 more failing rules                                        │
+  ├──────────────────────────────────────────────────────────────────┤
+  │  reports/scan_20260815_141230.html                               │
+  └──────────────────────────────────────────────────────────────────┘
 ```
+
+The **Failing** row breaks the fail count down by severity. It is what makes the
+trimmed listing usable: `… +16 more failing rules` on its own tells you nothing
+about what is in those 16, and a count of `19 fail` is not something you can act
+on — `2 high` is.
 
 The listing is sized to the terminal, so the box always fits one screen, and the
 ASCII banner collapses to one line on short terminals.

@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-readonly SCRIPT_VERSION="1.4.1"
+readonly SCRIPT_VERSION="1.4.2"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly BACKUP_BASE="/var/lib/linuxharden"
@@ -597,7 +597,24 @@ check_dependencies() {
         log_error "Incompatible oscap version. Aborting."
         exit 1
     fi
-    log_info "oscap ${ver} — OK"
+    # One pre-flight line for every engine, not just the mandatory one. Lynis
+    # stays optional by design — a missing audit engine must never fail a
+    # compliance run — but the operator has to learn it is missing here, not ten
+    # minutes into --scan when the audit layer finally starts and skips itself.
+    local lynis_ver="" lynis_bin=""
+    if lynis_bin=$(command -v lynis 2>/dev/null); then
+        # Read the version out of the script, never by running it. `lynis show
+        # version` TRUNCATES /var/log/lynis-report.dat — measured, 31831 → 709
+        # bytes — and check_dependencies() runs on --scan and --dry-run, which
+        # are strictly read-only. Executing lynis here would destroy the audit
+        # report on every scan.
+        lynis_ver=$(grep -am1 -oE 'PROGRAM_VERSION="[0-9][0-9.]*"' "$lynis_bin" 2>/dev/null \
+                    | grep -oE '[0-9][0-9.]*' || true)
+        log_info "Engines: oscap ${ver} · lynis ${lynis_ver:-installed}"
+    else
+        log_warn "Engines: oscap ${ver} · lynis not installed — --scan will skip the audit layer"
+        echo -e "  Add it with: ${BOLD}$(basename "$0") --install-lynis${NC}"
+    fi
 }
 
 # ── Active Service Detection ──────────────────────────────────────────────────
@@ -1236,6 +1253,24 @@ if stats_f and os.path.exists(stats_f):
             k, v = line.rstrip('\n').split('=', 1)
             st[k] = v
 
+# Failing rules, worst severity first. Parsed before anything prints because the
+# header needs the severity counts and the listing below needs the same list.
+SEV_ORDER = {'high': 0, 'medium': 1, 'low': 2, 'unknown': 3}
+SEV_COLOR = {'high': R, 'medium': Y, 'low': '\033[0;34m', 'unknown': '\033[0;37m'}
+failed = []
+if arf and os.path.exists(arf):
+    NS = 'http://checklists.nist.gov/xccdf/1.2'
+    tree = ET.parse(arf).getroot()
+    sev_of = {r.get('id',''): r.get('severity','unknown') for r in tree.iter(f'{{{NS}}}Rule')}
+    for rr in tree.iter(f'{{{NS}}}rule-result'):
+        res = rr.find(f'{{{NS}}}result')
+        if res is not None and res.text and res.text.strip() == 'fail':
+            rid = rr.get('idref', '')
+            sev = sev_of.get(rid, 'unknown')
+            short = rid.split('_rule_')[-1] if '_rule_' in rid else rid
+            failed.append((SEV_ORDER.get(sev, 3), sev, short))
+    failed.sort()
+
 # The inner width between the corners is W+4; the header spends 3 of it on
 # "─ " and the space after the title, so the title gets at most W+1.
 title = f"hardenix {ver} · {distro} · {level}"
@@ -1254,6 +1289,19 @@ if score is not None:
               f"{st.get('compliance_pass','?')} pass · {st.get('compliance_fail','?')} fail"))
 else:
     print(row(f"{'Compliance':<12} {Y}{'skipped':<9}{NC} scan produced no usable result"))
+
+# "128 fail" is not actionable; "4 high" is. This also gives the trimmed listing
+# below a shape — "… +118 more" alone says nothing about what is in those 118.
+if failed:
+    counts = {}
+    for _, sev, _ in failed:
+        counts[sev] = counts.get(sev, 0) + 1
+    tail = " · ".join(f"{counts[s]} {s}" for s in ('high', 'medium', 'low', 'unknown') if counts.get(s))
+    maxtail = W - 23
+    if len(tail) > maxtail:
+        tail = tail[:maxtail - 1] + '…'
+    col = R if counts.get('high') else Y
+    print(row(f"{'Failing':<12} {col}{len(failed):<9}{NC} {tail}"))
 
 if 'lynis_index' in st:
     idx = st['lynis_index']
@@ -1274,23 +1322,6 @@ if 'cve_total' in st:
     print(row(f"{'CVE':<12} {col}{st['cve_total']:<9}{NC} {tail}"))
 else:
     print(row(f"{'CVE':<12} {Y}{'skipped':<9}{NC} no feed configured or scan failed"))
-
-# Top failing rules, worst severity first.
-SEV_ORDER = {'high': 0, 'medium': 1, 'low': 2, 'unknown': 3}
-SEV_COLOR = {'high': R, 'medium': Y, 'low': '\033[0;34m', 'unknown': '\033[0;37m'}
-failed = []
-if arf and os.path.exists(arf):
-    NS = 'http://checklists.nist.gov/xccdf/1.2'
-    tree = ET.parse(arf).getroot()
-    sev_of = {r.get('id',''): r.get('severity','unknown') for r in tree.iter(f'{{{NS}}}Rule')}
-    for rr in tree.iter(f'{{{NS}}}rule-result'):
-        res = rr.find(f'{{{NS}}}result')
-        if res is not None and res.text and res.text.strip() == 'fail':
-            rid = rr.get('idref', '')
-            sev = sev_of.get(rid, 'unknown')
-            short = rid.split('_rule_')[-1] if '_rule_' in rid else rid
-            failed.append((SEV_ORDER.get(sev, 3), sev, short))
-    failed.sort()
 
 if failed:
     print(sep())
@@ -2009,7 +2040,7 @@ run_scan_full() {
     local h rows=0
     h=$(term_height)
     if [[ "$h" -gt 0 ]]; then
-        rows=$(( h - 14 ))                   # the box itself costs ~14 rows
+        rows=$(( h - 15 ))                   # box chrome: 4 layer rows + 3 rules + report + borders
         if [[ "$rows" -lt 2 ]]; then rows=2; fi
     fi
     local report; report=$(awk -F'=' '/^compliance_report=/{print $2}' "$POSTURE_STATS" 2>/dev/null || true)

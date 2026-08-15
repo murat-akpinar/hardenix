@@ -106,7 +106,11 @@ Runs every read-only layer in one call, in order:
    score doesn't short-circuit the remaining layers.
 2. **Lynis** — `run_scan_lynis()` (below) if `lynis` is on `PATH`; otherwise
    `log_warn`s "Lynis not installed — skipping audit layer (enable with
-   `--install-lynis`)" and moves on.
+   `--install-lynis`)" and moves on. That warning arrives minutes in, once
+   compliance has finished, so `check_dependencies()` also reports the whole
+   engine set up front — `Engines: oscap 1.3.9 · lynis 3.0.9`, or a warning
+   naming `--install-lynis` when Lynis is absent. Absent Lynis stays a warning
+   everywhere: it must never fail a compliance run.
 3. **CVE** — `run_scan_cve()` if the package manager is `dnf`/`yum` or
    `scap.oval_url` is set; otherwise `log_warn`s "No OVAL feed configured
    (scap.oval_url) — skipping CVE layer."
@@ -317,6 +321,17 @@ caught it.
 | Terminal | rows from `tput lines`, else `stty size`, else 24 | listings trimmed, banner collapses below 30 rows |
 | Pipe / redirect / CI | `0` | nothing trimmed — logs and reports stay complete |
 | `--full` | `term_height()` returns `0` | nothing trimmed on a terminal either |
+
+The posture box costs 15 rows of chrome (blank line, two borders, **four** layer
+rows — Compliance, Failing, Lynis, CVE — two separators, the `… +N more` line and
+the report path), so `run_scan_full()` hands `print_posture_summary()` a listing
+budget of `TERM_ROWS - 15`. Change the number of fixed rows and that constant
+moves with it, or the box stops fitting the screen it exists for.
+
+The **Failing** row breaks the fail count down by severity. It is computed from
+the same `failed` list the listing below uses, which is why the ARF is parsed
+before anything prints. Its tail is truncated to `W - 23` columns so a four-digit
+count in every band cannot push the right border out of alignment.
 
 `print_failing_rules()` and the two CVE summaries take a row budget; `0` means
 unlimited and keeps the original grouped-by-severity layout. With a budget they

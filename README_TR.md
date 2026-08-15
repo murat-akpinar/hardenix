@@ -290,19 +290,24 @@ istediğinde bunlara başvur.
 yok. Çıktı **tek bir duruş kutusuyla** biter — üç katman ve önemli bulgular:
 
 ```
-  ┌─ hardenix 1.3.0 · Ubuntu 24.04.4 LTS · CIS Level 1 (basic) ───┐
-  │  Compliance   92.9 %    245 pass · 19 fail                    │
-  │  Lynis        58/100    12 warnings · 41 suggestions          │
-  │  CVE          340       8 critical · 44 high · 92 advisories  │
-  ├───────────────────────────────────────────────────────────────┤
-  │  HIGH    package_telnetd_removed                              │
-  │  HIGH    sshd_disable_root_login                              │
-  │  MEDIUM  mount_option_tmp_nodev                               │
-  │  … +126 more failing rules                                    │
-  ├───────────────────────────────────────────────────────────────┤
-  │  reports/scan_20260815_141230.html                            │
-  └───────────────────────────────────────────────────────────────┘
+  ┌─ hardenix 1.4.2 · Ubuntu 24.04.4 LTS · CIS Level 1 (basic) ──────┐
+  │  Compliance   92.9 %    245 pass · 19 fail                       │
+  │  Failing      19        2 high · 12 medium · 5 low               │
+  │  Lynis        58/100    12 warnings · 41 suggestions             │
+  │  CVE          340       8 critical · 44 high · 92 advisories     │
+  ├──────────────────────────────────────────────────────────────────┤
+  │  HIGH    package_telnetd_removed                                 │
+  │  HIGH    sshd_disable_root_login                                 │
+  │  MEDIUM  mount_option_tmp_nodev                                  │
+  │  … +16 more failing rules                                        │
+  ├──────────────────────────────────────────────────────────────────┤
+  │  reports/scan_20260815_141230.html                               │
+  └──────────────────────────────────────────────────────────────────┘
 ```
+
+**Failing** satırı fail sayısını severity'ye göre ayırır. Kırpılmış listeyi
+kullanılabilir yapan şey budur: tek başına `… +16 more failing rules` o 16'nın
+içinde ne olduğunu söylemiyor, `19 fail` de eyleme dönüşmüyor — `2 high` dönüşüyor.
 
 Liste terminal yüksekliğine göre boyutlanır, böylece kutu her zaman tek ekrana
 sığar; ASCII banner da kısa terminallerde tek satıra iner.
