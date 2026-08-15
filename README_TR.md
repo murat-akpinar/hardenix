@@ -2,11 +2,11 @@
 
 [![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-1a1a1a?style=flat-square&labelColor=1a1a1a&color=8a6f3a)](LICENSE)
 [![Built with Claude Code](https://img.shields.io/badge/built%20with-Claude%20Code-1a1a1a?style=flat-square&labelColor=1a1a1a&color=d8b66b)](https://claude.com/claude-code)
-[![Status](https://img.shields.io/badge/status-active-1a1a1a?style=flat-square&labelColor=1a1a1a&color=4a9e6b)](https://github.com/YOUR_GITHUB_USER/hardenix)
+[![Status](https://img.shields.io/badge/status-active-1a1a1a?style=flat-square&labelColor=1a1a1a&color=4a9e6b)](https://github.com/murat-akpinar/hardenix)
 [![Bash](https://img.shields.io/badge/bash-5.0%2B-1a1a1a?style=flat-square&labelColor=1a1a1a&color=4eaa25&logo=gnubash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![OpenSCAP](https://img.shields.io/badge/OpenSCAP-1.3%2B-1a1a1a?style=flat-square&labelColor=1a1a1a&color=cc0000)](https://www.open-scap.org)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-1a1a1a?style=flat-square&labelColor=1a1a1a&color=3776ab&logo=python&logoColor=white)](https://www.python.org)
-[![Distros](https://img.shields.io/badge/distros-8%20supported-1a1a1a?style=flat-square&labelColor=1a1a1a&color=e95420)](https://github.com/YOUR_GITHUB_USER/hardenix/tree/main/profiles)
+[![Distros](https://img.shields.io/badge/distros-9%20supported-1a1a1a?style=flat-square&labelColor=1a1a1a&color=e95420)](https://github.com/murat-akpinar/hardenix/tree/main/profiles)
 
 > English version: [README.md](README.md)
 
@@ -106,7 +106,7 @@ sudo ./linuxharden.sh --apply --level 2    # sıkı (varsayılan)
 ## Kurulum
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USER/hardenix.git
+git clone https://github.com/murat-akpinar/hardenix.git
 cd hardenix
 chmod +x linuxharden.sh
 
@@ -215,6 +215,18 @@ sudo ./linuxharden.sh --scan --min-score 90 || echo "baseline altında — deplo
 | `--min-score <N>` | `--scan` skoru N'in altındaysa hata koduyla çıkar (CI barajı) |
 | `--conf <dosya>` | Yerel .yml profil dosyası kullan |
 
+### Çıkış kodları
+
+| Kod | Anlamı |
+|-----|--------|
+| `0` | Başarılı (`--help` dahil) |
+| `1` | Hata: kullanım hatası, bilinmeyen/çakışan bayrak, eksik bağımlılık, kullanılabilir yedek yok, yedek alınamadı, yamalama başarısız |
+| `2` | `--min-score N` barajı: uyumluluk skoru eşiğin altında |
+
+Kullanım hatası her zaman sıfırdan farklı döner; yanlış yazılmış bir bayrak
+temiz koşu gibi görünmek yerine pipeline'ı kırar. `--apply`, `--deadman`
+verilsin ya da verilmesin, başarıda `0` döner.
+
 ---
 
 ## Profil YAML Formatı
@@ -249,7 +261,6 @@ exclusions:
   rules:    []        # XCCDF rule ID'leri — tailoring dosyasına eklenir
   services: []        # Yedekten çıkarılacak servisler
   paths:    []        # Yedekten çıkarılacak path'ler
-  users:    []
 
 hooks:
   pre_hardening:  ""  # --apply öncesi çalışır

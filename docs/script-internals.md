@@ -10,10 +10,11 @@ Every invocation runs the same spine (`main()` at the bottom of the file):
 
 ```
 main()
- ├─ banner()                    # shows applied level from STATE_FILE if present
+ ├─ banner()                    # version banner
  ├─ parse_args()                # flags → MODE + runtime flags; validation
  ├─ check_root()
- ├─ detect_distro()             # /etc/os-release → DISTRO_ID, DISTRO_VERSION
+ ├─ detect_distro()             # /etc/os-release → DISTRO_ID, DISTRO_VERSION;
+ │                              #   prints applied level from STATE_FILE if present
  ├─ download_conf()             # pick profiles/${DISTRO_ID}-${DISTRO_VERSION}.yml
  │                              #   (or --conf override); fallback name variants
  ├─ [--install/--install-openscap/--install-lynis → run_install_deps(component); exit]
@@ -31,12 +32,33 @@ main()
               | run_unapply | run_uninstall | run_*_arch
 ```
 
+`parse_args()` validates before anything runs: a second, different mode is a hard
+error (`--scan --apply` must never silently apply), a value-taking option with no
+value is a hard error (a bare `shift` past the end would otherwise kill the script
+silently under `set -e`), and any usage error exits **non-zero** so a typo'd flag
+fails CI instead of looking like a clean run.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success, `--help` included |
+| `1` | Usage error, missing dependency, no usable backup, backup failure, patch failure |
+| `2` | `--min-score N` gate: compliance score below the threshold |
+
+`--apply` returns `0` on success regardless of `--deadman`.
+
 Key dispatch subtleties:
 
 - **Service protection runs only for `--apply`.** `--scan`/`--scan-compliance` are
   read-only, so they report the true compliance state without offering exclusions.
 - **CVE and Lynis modes skip XCCDF/profile validation** — they need only oscap+feed
   or `lynis`, never the SCAP datastream/profile.
+- **Optional layers of `--scan` are non-fatal.** `run_scan_lynis`/`run_scan_cve`
+  are invoked in a subshell there, so a stale Lynis report or an unreachable OVAL
+  feed degrades to a warning instead of aborting the posture scan — and, worse,
+  skipping the `--min-score` gate that runs last. Called directly they still
+  hard-fail.
 - **Arch fallback**: `meta.arch_fallback: true` reroutes `scan`/`scan_compliance`/
   `apply`/`unapply` to `run_*_arch` (basic sysctl + sshd hardening; no SSG content
   exists for Arch) and, since `parse_conf()` returns immediately after remapping,
@@ -195,13 +217,24 @@ Written by `create_backup()` before any mutation; consumed by `revert_hardening(
 /var/lib/linuxharden/applied_level   # STATE_FILE — shown in the banner
 ```
 
+**The archive is verified before the first mutation.** `revert_hardening()` deletes
+files that exist now but are absent from `configs.tar.gz`, so a silently partial
+archive would turn `--unapply` into a config shredder. `create_backup()` therefore
+treats `tar` exit ≥ 2 as fatal, re-reads the archive with `tar tzf`, and asserts
+that every path it meant to archive is actually present. Any of those failing
+returns non-zero and `run_apply()` aborts while the system is still untouched.
+
 **Rule for contributors:** any new mutation must be captured here *and* reverted
 in `revert_hardening()` — extend both sides, additively.
 
 ## Profiles (`profiles/*.yml`)
 
-Selected as `${DISTRO_ID}-${DISTRO_VERSION}.yml` (with fallback name variants) or
-forced via `--conf`. Parsed by `parse_conf()` (python3 + PyYAML) into globals:
+Selected by trying, in order, `${DISTRO_ID}-${DISTRO_VERSION}.yml`,
+`${DISTRO_ID}-${DISTRO_VERSION_MAJOR}.yml` and plain `${DISTRO_ID}.yml` — or
+forced via `--conf`. The bare `${DISTRO_ID}.yml` is what rolling releases need:
+Arch ships no `VERSION_ID`, so both versioned candidates resolve to
+`arch-rolling.yml`, a name no profile has. Parsed by `parse_conf()` (python3 +
+PyYAML) into globals:
 
 | Section | Drives |
 |---------|--------|
@@ -235,7 +268,10 @@ detect → exclude-rule-IDs template.
   non-TTY execution — the script is CI-safe by construction.
 - All output goes through `log_info/warn/error/section`; long operations get a
   `_spin` spinner around a background PID.
-- `trap cleanup EXIT` removes `TMP_DIR` (`/tmp/linuxharden_$$`).
+- `trap cleanup EXIT` removes `TMP_DIR`, created on demand by `ensure_tmpdir()`
+  via `mktemp -d`. The scratch path must stay unpredictable — the script runs as
+  root, and a symlink pre-planted at a guessable `/tmp` name would redirect root's
+  writes. `install_ssg_from_github()` follows the same rule for its download dir.
 - `oscap` exit codes are tolerated (`|| true`) where non-zero is informational
   (e.g. "fails found"), and hard-checked where it means the operation failed.
 - Verification gates for changes: `bash -n`, shellcheck, and the smoke cycle in
