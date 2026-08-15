@@ -12,6 +12,8 @@ The three gaps the full-feature sweep turned up, each verified on both VMs.
 23 flags on one screen was the same overwhelm problem as a 180-line scan: --help printed 44 rows plus the banner, two screens on a 24-row console with no scrollback. A usage error was worse — it dumped the whole help below the error, pushing the one line the operator actually needed off the top.
 - *(scan)* Report every engine up front and break failures down by severity ([78b45f3](https://github.com/murat-akpinar/hardenix/commit/78b45f3eb103f9ad6d6f4dcf0f40d5a22adade91))
 Two gaps the VM sweep surfaced.
+- Warn before SSH lockout and size the posture box to the terminal ([a4662a8](https://github.com/murat-akpinar/hardenix/commit/a4662a8d5624e1b896a4c4f7605ecb2622539a2f))
+Two things a remote operator could not see.
 
 ### 🐛 Bug Fixes
 
