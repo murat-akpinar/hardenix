@@ -21,6 +21,8 @@ Two things a remote operator could not see.
 Eleven defects, each reproduced and re-verified on the Ubuntu 24.04.4 and Rocky 9.8 test VMs.
 - *(profiles)* Back up every path the remediation writes ([1834aac](https://github.com/murat-akpinar/hardenix/commit/1834aacf4ca067e0b285ef604568a6285be07bf4))
 --unapply deletes and restores only what backup.config_dirs covers, so anything the hardening wrote outside that list simply stayed applied. Only ubuntu-24.04.yml had the extended list; the other eight profiles still carried the original ~12 paths.
+- Make every command the tool prints actually runnable ([7a2c043](https://github.com/murat-akpinar/hardenix/commit/7a2c043cc10af3f49818224a6ad6a3b651a986a6))
+"Retry later with: sudo linuxharden.sh --install-lynis" never worked — the tool is not on $PATH. basename "$0" yields a bare linuxharden.sh whatever the invocation (measured: bash t.sh, ./t.sh and bash /tmp/t.sh all give "t.sh"), so every printed recovery command failed with command not found. It was used in 11 places, and inconsistently: one said "sudo bash", the other ten did not.
 
 ### 📚 Documentation
 
