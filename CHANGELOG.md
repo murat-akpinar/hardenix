@@ -6,6 +6,8 @@
 hardenix is often read on the machine's own console, where there is no scrollback. `--scan` printed 183 lines — roughly eight screens on a 24-row terminal — and the operator could not page back through them.
 - *(fix-cve)* Say when a patched kernel is not live yet ([a688793](https://github.com/murat-akpinar/hardenix/commit/a6887936a502d7ffaac8fc7b3339185d3e822898))
 On the Rocky 9.8 VM --fix-cve patched 156 packages and reported success, but --scan-cve still listed 93 CVEs afterwards, which reads like the patching failed. It had not: `dnf check-update --security` was clean and the box was simply still running kernel 687.10.1 while 687.39.1 sat installed. The count was right; the message was missing.
+- Add --keep, --refresh-feed and a profile/distro mismatch warning ([9ea084f](https://github.com/murat-akpinar/hardenix/commit/9ea084fe02487957c0654a7f67c9e8059de01436))
+The three gaps the full-feature sweep turned up, each verified on both VMs.
 
 ### 🐛 Bug Fixes
 
