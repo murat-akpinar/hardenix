@@ -16,8 +16,11 @@ readonly SELF_CMD
 # the "distro package too old" hint so that message names a real version.
 readonly SSG_FALLBACK_VER="0.1.74"
 readonly BACKUP_BASE="/var/lib/linuxharden"
-REPORT_DIR="$(pwd)/reports"
-readonly REPORT_DIR
+# Reports used to land in "$(pwd)/reports", which meant a cron or systemd run
+# (cwd=/) tried to write /reports, and --last could not find yesterday's scan
+# unless you happened to stand in the same directory. Fixed location, with
+# --report-dir for anyone who wants it elsewhere. Set for real in parse_args().
+REPORT_DIR="/var/lib/linuxharden/reports"
 TMP_DIR=""              # created on demand by ensure_tmpdir(); removed by the EXIT trap
 readonly STATE_FILE="/var/lib/linuxharden/applied_level"   # records the applied hardening level
 readonly LYNIS_REPORT_DAT="/var/log/lynis-report.dat"   # written by `lynis audit system`
@@ -33,6 +36,7 @@ MIN_SCORE=""            # --min-score N: exit non-zero if scan score < N
 DEADMAN_MIN=""          # --deadman N: auto-revert N min after apply unless --confirm
 BACKUP_KEEP=5           # --keep N: backups to retain after an apply; 0 = keep all
 REFRESH_FEED=false      # --refresh-feed: ignore the 24h OVAL cache
+WITH_EPEL=false         # --with-epel: let --install add EPEL (RHEL: lynis lives there)
 DEFER_MIN_SCORE=false   # true during --scan (combined): gate runs after all layers
 LAST_SCAN_ARF=""        # set by run_scan; consumed by run_scan_full's final gate
 FULL_OUTPUT=false       # --full: never trim listings to the terminal height
@@ -230,6 +234,7 @@ usage_full() {
     echo "  --scan-compliance    Compliance scan only (OpenSCAP)"
     echo "  --scan-lynis         Lynis audit only: hardening index (0-100) + warnings"
     echo "  --scan-cve           Known-CVE scan only (vendor OVAL feed / dnf errata)"
+    echo "  --last               Reprint the last scan's box without scanning again"
     echo "  --install-openscap   Install only OpenSCAP + SCAP content"
     echo "  --install-lynis      Install only Lynis"
     echo ""
@@ -242,6 +247,8 @@ usage_full() {
     echo "  --keep <N>           Keep only the newest N backups (default: 5, 0 = all)"
     echo "  --refresh-feed       Re-download the OVAL feed instead of using the 24h cache"
     echo "  --conf <file>        Use a local .yml profile instead of the bundled one"
+    echo "  --report-dir <dir>   Report location (default /var/lib/linuxharden/reports)"
+    echo "  --with-epel          Let --install enable EPEL on RHEL (lynis lives there)"
     echo ""
     echo -e "${BOLD}Hardening levels${NC}"
     echo "  1  Basic, practical hardening — safe for everyday servers"
@@ -333,6 +340,9 @@ parse_args() {
             --yes|--non-interactive) ASSUME_YES=true ;;
             --full)      FULL_OUTPUT=true ;;
             --refresh-feed) REFRESH_FEED=true ;;
+            --with-epel) WITH_EPEL=true ;;
+            --report-dir) require_val "$1" "${2:-}"; REPORT_DIR="$2"; shift ;;
+            --last)      set_mode "show_last" ;;
             --keep)      require_val "$1" "${2:-}"; BACKUP_KEEP="$2"; shift ;;
             --min-score) require_val "$1" "${2:-}"; MIN_SCORE="$2"; shift ;;
             --level)     require_val "$1" "${2:-}"; SEC_LEVEL="$2"; shift ;;
@@ -431,7 +441,9 @@ detect_distro() {
 
 # ── Profile Resolution ────────────────────────────────────────────────────────
 
-download_conf() {
+# Picks the profile for this machine from profiles/. It downloads nothing — the
+# old name (download_conf) described a design that never shipped.
+resolve_profile() {
     if [[ -n "$LOCAL_CONF" ]]; then
         [[ ! -f "$LOCAL_CONF" ]] && { log_error "Local conf not found: $LOCAL_CONF"; exit 1; }
         CONF_FILE="$LOCAL_CONF"
@@ -1559,6 +1571,15 @@ install_lynis_pkg() {
         return 0
     fi
 
+    # RHEL family keeps lynis in EPEL, which is a third-party repo — adding it
+    # changes the package source for the whole system, so it stays opt-in.
+    if [[ "$WITH_EPEL" == true && ( "$PKG_MANAGER" == "dnf" || "$PKG_MANAGER" == "yum" ) ]]; then
+        if ! rpm -q epel-release &>/dev/null; then
+            log_info "Enabling EPEL (--with-epel)..."
+            "$PKG_MANAGER" install -y epel-release || log_warn "EPEL could not be enabled."
+        fi
+    fi
+
     log_info "Installing Lynis (${LYNIS_PKG})..."
     local rc=0
     # shellcheck disable=SC2086
@@ -1573,6 +1594,7 @@ install_lynis_pkg() {
         if [[ "$PKG_MANAGER" == "dnf" || "$PKG_MANAGER" == "yum" ]]; then
             echo -e "  Hint: Lynis lives in ${BOLD}EPEL${NC} — enable it first:"
             echo -e "        ${BOLD}${PKG_MANAGER} install -y epel-release${NC}"
+            echo -e "  Or let hardenix do it: ${BOLD}sudo ${SELF_CMD} --install --with-epel${NC}"
         fi
         if [[ "$strict" == "true" ]]; then
             log_error "Lynis installation failed."
@@ -2178,6 +2200,19 @@ run_scan_full() {
         if [[ "$rows" -lt 2 ]]; then rows=2; fi
     fi
     local report; report=$(awk -F'=' '/^compliance_report=/{print $2}' "$POSTURE_STATS" 2>/dev/null || true)
+
+    # Persist the stats beside the ARF so --last can replay this box without
+    # re-scanning. POSTURE_STATS lives in TMP_DIR and dies with the process, so
+    # without this copy only the compliance numbers survive (in the ARF) and the
+    # Lynis index and CVE counts would be gone. Distro and level are recorded
+    # too: a replayed box must show what was scanned, not what is current.
+    if [[ -n "$LAST_SCAN_ARF" && -f "$POSTURE_STATS" ]]; then
+        stat_put scan_distro "$DISTRO_PRETTY"
+        stat_put scan_level  "$SEC_LEVEL_LABEL"
+        stat_put scan_epoch  "$(date +%s)"
+        cp -f "$POSTURE_STATS" "${LAST_SCAN_ARF%.arf}.stats" 2>/dev/null || true
+    fi
+
     print_posture_summary "$LAST_SCAN_ARF" "$report" "$rows"
 
     DEFER_MIN_SCORE=false
@@ -2438,6 +2473,72 @@ arm_deadman() {
     else
         log_warn "Failed to arm dead-man switch."
     fi
+}
+
+# Reprint the last posture box from disk. Read-only by construction: it opens
+# the newest ARF and its .stats sibling and prints, nothing else.
+#
+# Staleness is stated loudly on purpose. This repo already treated silently
+# reprinting an old Lynis index as a defect; --last is legitimate because the
+# operator asked for history, but a cached 92.9 % that reads as "now" is the
+# most expensive misunderstanding this tool could cause.
+run_show_last() {
+    local arf=""
+    # `|| true` is load-bearing: with pipefail a missing REPORT_DIR makes find
+    # fail, the assignment fails with it, and set -e kills the script before the
+    # emptiness check below — exiting 1 with no message at all.
+    arf=$(find "$REPORT_DIR" -maxdepth 1 -type f -name 'scan_*.arf' -printf '%T@ %p\n' 2>/dev/null \
+          | sort -rn | head -1 | cut -d' ' -f2- || true)
+    if [[ -z "$arf" ]]; then
+        log_error "No previous scan found in ${REPORT_DIR}"
+        echo -e "  Run one with: ${BOLD}sudo ${SELF_CMD} --scan${NC}"
+        exit 1
+    fi
+
+    local stats="${arf%.arf}.stats"
+    [[ -f "$stats" ]] || stats=""
+
+    local epoch="" when="" age_s=0
+    [[ -n "$stats" ]] && epoch=$(awk -F'=' '/^scan_epoch=/{print $2}' "$stats" 2>/dev/null || true)
+    [[ "$epoch" =~ ^[0-9]+$ ]] || epoch=$(stat -c %Y "$arf" 2>/dev/null || echo 0)
+    age_s=$(( $(date +%s) - epoch ))
+    [[ "$age_s" -lt 0 ]] && age_s=0
+    if   [[ "$age_s" -lt 3600   ]]; then when="$(( age_s / 60 ))m ago"
+    elif [[ "$age_s" -lt 86400  ]]; then when="$(( age_s / 3600 ))h ago"
+    else                                 when="$(( age_s / 86400 ))d ago"
+    fi
+
+    local distro="$DISTRO_PRETTY" level="$SEC_LEVEL_LABEL" report=""
+    if [[ -n "$stats" ]]; then
+        local d l
+        d=$(awk -F'=' '/^scan_distro=/{print $2}' "$stats" 2>/dev/null || true)
+        l=$(awk -F'=' '/^scan_level=/{print $2}'  "$stats" 2>/dev/null || true)
+        [[ -n "$d" ]] && distro="$d"
+        [[ -n "$l" ]] && level="$l"
+        report=$(awk -F'=' '/^compliance_report=/{print $2}' "$stats" 2>/dev/null || true)
+    fi
+
+    # Anything past a day is a different machine in practice — packages moved,
+    # CVEs were published. Say so above the box, where it cannot be missed.
+    if [[ "$age_s" -ge 86400 ]]; then
+        log_warn "Cached result from $(date -d "@${epoch}" '+%Y-%m-%d %H:%M' 2>/dev/null || echo '?') (${when}) — NOT the current state."
+        echo -e "  Re-scan with: ${BOLD}sudo ${SELF_CMD} --scan${NC}"
+    else
+        log_info "Cached result from $(date -d "@${epoch}" '+%Y-%m-%d %H:%M' 2>/dev/null || echo '?') (${when}) — no scan was run."
+    fi
+    [[ -z "$stats" ]] && log_warn "No stats sidecar for this scan — Lynis and CVE layers will show as unavailable."
+
+    local h rows=0
+    h=$(term_height)
+    if [[ "$h" -gt 0 ]]; then
+        rows=$(( h - 15 ))
+        if [[ "$rows" -lt 2 ]]; then rows=2; fi
+    fi
+
+    POSTURE_STATS="$stats"
+    DISTRO_PRETTY="$distro" SEC_LEVEL_LABEL="${level} · ${when}" \
+        print_posture_summary "$arf" "$report" "$rows"
+    return 0
 }
 
 run_confirm() {
@@ -2800,13 +2901,20 @@ main() {
     banner
     check_root "$@"
     detect_distro
-    download_conf
+    resolve_profile
 
     case "$MODE" in
         install)          run_install_deps all;      return ;;
         install_openscap) run_install_deps openscap; return ;;
         install_lynis)    run_install_deps lynis;    return ;;
     esac
+
+    # --last only reads files in REPORT_DIR; it needs neither a profile, nor
+    # oscap, nor PyYAML, so dispatch it before any of that is required.
+    if [[ "$MODE" == "show_last" ]]; then
+        run_show_last
+        return
+    fi
 
     if [[ "$MODE" == "confirm" ]]; then
         run_confirm

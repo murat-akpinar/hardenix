@@ -95,10 +95,9 @@ oscap'sız ortamda temiz hata. → `v1.3.0`
 
 ### P0 — İşletim ergonomisi
 
-- [ ] **`REPORT_DIR="$(pwd)/reports"` → sabit yol.** Raporlar çalışma dizinine yazılıyor;
-      cron/systemd timer'dan (cwd=`/`) çalıştırınca `/reports` denenir.
-      `/var/lib/linuxharden/reports` + `--report-dir` bayrağı. Web UI de uzak raporları
-      sabit yoldan topluyor — FAZ W5 buna bağlı.
+- [x] **`REPORT_DIR` → sabit yol.** ✅ v1.5.0. `/var/lib/linuxharden/reports`,
+      `--report-dir <dizin>` ile değiştirilebilir. `--last`'ın ön şartıydı: cwd'ye
+      bağlı bir rapor dizini "son taramayı göster" ile birlikte çalışmaz.
 - [ ] **Dosyaya log** (`/var/log/hardenix/run-<ts>.log`), TTY'den bağımsız. Otomasyondan
       çalışan bir apply'ın ne yaptığına dair bugün kalıcı iz yok.
 - [x] **Çıkış kodu sözleşmesi** (0 başarı / 1 hata / 2 eşik altı) + README'de tablo.

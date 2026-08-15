@@ -250,6 +250,7 @@ sudo ./linuxharden.sh --scan --min-score 90 || echo "baseline altında — deplo
 | `--apply` | Sıkılaştırma uygular (yedek → uygula → doğrula) |
 | `--unapply` | Sistemi apply öncesi haline döndürür (OpenSCAP'i korur) |
 | `--fix-cve` | Yalnızca mevcut güvenlik güncellemelerini kurar |
+| `--last` | Son taramanın kutusunu diskten tekrar basar — tarama yapmaz |
 | `--level <1\|2>` | Sıkılaştırma seviyesi: `1` = CIS Level 1 (temel), `2` = CIS Level 2 (sıkı, varsayılan) |
 | `--dry-run` | `--apply`'ın neyi değiştireceğini severity'ye göre gösterir — hiçbir şey değiştirmez |
 | `--yes` | Her prompta evet varsayar (etkileşimsiz / CI) |
@@ -286,6 +287,8 @@ istediğinde bunlara başvur.
 | `--keep <N>` | `--apply` ile: yalnız en yeni N yedeği tut (varsayılan 5, `0` = hepsi) |
 | `--refresh-feed` | OVAL feed'ini 24 saatlik cache yerine yeniden indir |
 | `--conf <dosya>` | Gömülü profil yerine yerel bir .yml profili kullan |
+| `--report-dir <dizin>` | Raporların yazılacağı yer (varsayılan `/var/lib/linuxharden/reports`) |
+| `--with-epel` | `--install` RHEL ailesinde EPEL'i etkinleştirsin (Lynis orada) |
 
 </details>
 
@@ -424,7 +427,9 @@ altına yedek alır:
 
 ## Raporlar
 
-`./reports/` klasörüne kaydedilir:
+`/var/lib/linuxharden/reports/` altına kaydedilir (`--report-dir <dizin>` ile
+değiştirilebilir). Yol çalışma dizinine göre değil sabit; böylece cron/systemd
+çalıştırması beklediğin yere yazıyor ve `--last` dünkü taramayı bulabiliyor:
 
 | Dosya | İçerik |
 |-------|--------|

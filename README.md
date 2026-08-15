@@ -252,6 +252,7 @@ the fold.
 | `--apply` | Applies hardening (backup → apply → verify) |
 | `--unapply` | Reverts to the pre-apply state (keeps OpenSCAP installed) |
 | `--fix-cve` | Installs only the available security updates |
+| `--last` | Reprints the last scan's box from disk — no scan is run |
 | `--level <1\|2>` | Hardening level: `1` = CIS Level 1 (basic), `2` = CIS Level 2 (strict, default) |
 | `--dry-run` | Shows what `--apply` would change, grouped by severity — changes nothing |
 | `--yes` | Assumes yes for every prompt (non-interactive / CI) |
@@ -288,6 +289,8 @@ want one of them on its own.
 | `--keep <N>` | With `--apply`: keep only the newest N backups (default 5, `0` keeps all) |
 | `--refresh-feed` | Re-download the OVAL feed instead of using the 24 h cache |
 | `--conf <file>` | Use a local .yml profile instead of the bundled one |
+| `--report-dir <dir>` | Where reports are written (default `/var/lib/linuxharden/reports`) |
+| `--with-epel` | Let `--install` enable EPEL on the RHEL family (Lynis lives there) |
 
 </details>
 
@@ -432,7 +435,9 @@ the one `latest` points at is never pruned.
 
 ## Reports
 
-Saved to the `./reports/` directory:
+Saved to `/var/lib/linuxharden/reports/` (override with `--report-dir <dir>`).
+The location is fixed rather than relative to the working directory, so a cron
+or systemd run writes where you expect and `--last` can find yesterday's scan:
 
 | File | Content |
 |------|---------|

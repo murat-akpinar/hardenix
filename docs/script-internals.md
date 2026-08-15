@@ -17,9 +17,11 @@ main()
  ├─ check_root()
  ├─ detect_distro()             # /etc/os-release → DISTRO_ID, DISTRO_VERSION;
  │                              #   prints applied level from STATE_FILE if present
- ├─ download_conf()             # pick profiles/${DISTRO_ID}-${DISTRO_VERSION}.yml
- │                              #   (or --conf override); fallback name variants
+ ├─ resolve_profile()           # pick profiles/${DISTRO_ID}-${DISTRO_VERSION}.yml
+ │                              #   (or --conf override); fallback name variants.
+ │                              #   Reads local files only — downloads nothing
  ├─ [--install/--install-openscap/--install-lynis → run_install_deps(component); exit]
+ ├─ [--last     → run_show_last();    exit]   # reads REPORT_DIR only
  ├─ [--confirm  → run_confirm();      exit]
  ├─ check_pyyaml() + parse_conf()     # YAML → PKG_MANAGER, XML_PATH, PROFILE_ID,
  │                                    #   OVAL_URL, BACKUP_DIRS, EXCLUSION_*, HOOK_*
@@ -91,7 +93,7 @@ Key dispatch subtleties:
 ### `--scan-compliance` / `--dry-run` (read-only)
 
 `run_scan()`: `oscap xccdf eval` against the datastream (`scap.xml_path`) with the
-active profile, results to `./reports/scan_<ts>.arf`. `get_score()` computes
+active profile, results to `$REPORT_DIR/scan_<ts>.arf`. `get_score()` computes
 `pass/(pass+fail)` from the ARF via embedded python3. Reports: HTML via
 `oscap-report`, JSON summary via `generate_json_report()` (`--format html|json|both`).
 `--min-score N` exits non-zero below the threshold (CI gate). `--dry-run` is the
@@ -128,6 +130,25 @@ via `stat_put()`, and the posture box reads that file.
 (`LAST_SCAN_ARF`) — deferring it is what lets the Lynis/CVE layers run even on a
 failing compliance score, and it still gates the compliance score only, never the
 Lynis index or CVE count.
+
+### `--last` (`run_show_last()`) — replay, never re-scan
+
+Reads the newest `scan_*.arf` in `REPORT_DIR` plus its `.stats` sidecar and
+reprints the posture box. 0.02 s against 60 s for a real `--scan`, measured on
+Ubuntu 24.04.
+
+The sidecar is why the box is complete: `POSTURE_STATS` lives in `TMP_DIR` and
+dies with the process, so `run_scan_full()` copies it to `<arf>.stats` and also
+records `scan_distro`, `scan_level` and `scan_epoch` there — a replayed box must
+show what was scanned, not what the machine looks like now. Without a sidecar
+(a scan from before this existed) the box still prints, with Lynis and CVE shown
+as unavailable.
+
+Staleness is stated above the box and again in its title (`· 3d ago`), and past
+24 h the wording turns into a warning. That is deliberate: this repo already
+treats silently reprinting an old Lynis index as a defect, and a cached score
+mistaken for the current one is the most expensive misreading the tool could
+cause. Dispatched before profile/oscap/PyYAML setup, since it needs none of it.
 
 ### `--scan-lynis` (`run_scan_lynis()`)
 

@@ -133,7 +133,8 @@ Chat with the maintainer in **Turkish**.
 7. **`SCRIPT_VERSION` is bumped in the same commit** as any user-visible behavior
    change.
 8. **One file, no dependencies beyond the distro.** The tool is a single bash
-   script installed with curl; runtime needs are bash 5, coreutils, `python3` +
+   script plus its `profiles/` directory (cloned, not curl'd — the script alone
+   cannot resolve a profile); runtime needs are bash 5, coreutils, `python3` +
    PyYAML (profile parsing), and the distro's package manager. No new runtime
    dependency without asking — splitting the script into modules is explicitly
    rejected ([todo.md](todo.md#p3--kasıtlı-yapılmayanlar)).
