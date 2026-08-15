@@ -509,7 +509,11 @@ yaşam döngüsü testi, kutu başına. Çıkış kodlarının tamamı beklendi�
    maxdays ayarının kalmasından çok daha kötü), üretilen cache'ler
    (`ld.so.cache`, `hwdb.bin`) ve `config` dışındaki `/etc/selinux`.
 
-2. **`--fix-cve` başarı diyor ama yama devrede değil.** Rocky'de 156 paket
+2. **`--fix-cve` başarı diyor ama yama devrede değil.** *(reboot sonrası doğrulandı:
+   kutu `687.39.1` ile açıldı, `--scan-cve` **93 → 0**; yani o 93 CVE tarayıcı
+   hatası değil, gerçekten reboot bekleyen açıklardı. `reboot_pending_reason()`
+   artık iki kutuda da boş dönüyor. `--fix-cve → reboot → --scan-cve = 0` döngüsü
+   uçtan uca kapandı.)* Rocky'de 156 paket
    yamalandı, `dnf check-update --security` temiz döndü, ama kutu hâlâ eski
    çekirdekle çalışıyordu (`687.10.1` çalışıyor / `687.39.1` kurulu) → `--scan-cve`
    93 CVE göstermeye devam etti. Sayı doğruydu, mesaj eksikti.
