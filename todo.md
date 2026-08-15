@@ -65,6 +65,13 @@ kısmı yapıldı. Kalan 5 madde hâlâ açık ve hepsi üretimde canını yakac
       `--apply` çalıştıran biri sshd Ciphers/MACs/Kex/PermitRootLogin kurallarında ek
       uyarı almıyor. Dead-man switch bunu kurtarıyor ama **yalnız `--deadman`
       verildiyse**; uyarı ucuz sigorta.
+      **2026-08-15 canlı örnek:** sertleştirilmiş kutularda `MaxAuthTries` 4'e
+      indiği için, `~/.ssh`'ında birden çok anahtar olan bir istemci düz
+      `ssh root@host` ile **reddedildi** (anahtar bütçesi sunucuya ulaşmadan
+      tükeniyor); `-i <anahtar> -o IdentitiesOnly=yes` ile sorunsuz giriyordu.
+      Pristine kutuda aynı istemci sorunsuz. Yani lockout'un en olası biçimi
+      PermitRootLogin değil, **MaxAuthTries + çok anahtarlı istemci**. Uyarı bunu
+      da söylemeli.
 - [ ] **Pre-flight kontrolleri:** disk alanı (backup için), `/etc` yazılabilir mi, ağ
       var mı (unapply'ın paket reinstall'ı için). Şu an hepsi iş ortasında patlıyor —
       yarım uygulanmış hardening en kötü durum.
@@ -86,9 +93,9 @@ oscap'sız ortamda temiz hata. → `v1.3.0`
       sabit yoldan topluyor — FAZ W5 buna bağlı.
 - [ ] **Dosyaya log** (`/var/log/hardenix/run-<ts>.log`), TTY'den bağımsız. Otomasyondan
       çalışan bir apply'ın ne yaptığına dair bugün kalıcı iz yok.
-- [ ] **Çıkış kodu sözleşmesi** (0 başarı / 1 hata / 2 eşik altı …) + README'de tablo.
-      `--min-score` ve CVE gate'lerinin kodları dokümante değil; CI'dan kullanmak tahmine
-      dayalı.
+- [x] **Çıkış kodu sözleşmesi** (0 başarı / 1 hata / 2 eşik altı) + README'de tablo.
+      ✅ v1.2.1: her iki README'de ve `docs/script-internals.md`'de tablo var; kullanım
+      hataları artık 1 dönüyor (eskiden 0 dönüp CI'da temiz koşu gibi görünüyordu).
 - [ ] **`--version`** (tek satır, makine-okur). Web UI planının script'e dokunmasına izin
       verilen **tek** istisnası; şimdi eklenirse deploy sürüm tespiti script'i hiç
       açmadan çalışır.
