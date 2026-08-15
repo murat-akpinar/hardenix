@@ -14,6 +14,8 @@ The three gaps the full-feature sweep turned up, each verified on both VMs.
 Two gaps the VM sweep surfaced.
 - Warn before SSH lockout and size the posture box to the terminal ([a4662a8](https://github.com/murat-akpinar/hardenix/commit/a4662a8d5624e1b896a4c4f7605ecb2622539a2f))
 Two things a remote operator could not see.
+- *(scan)* Lay the failing rules out in severity columns on a wide terminal ([4642eb1](https://github.com/murat-akpinar/hardenix/commit/4642eb145084aede20d02939ae9d491268ce34d0))
+One column per severity, each headed with its own count and carrying its own "… +N more", so the box height stops following whichever severity dominates — medium is routinely 75% of every failure, and a flat list spends all its rows there before reaching anything else.
 
 ### 🐛 Bug Fixes
 
